@@ -50,35 +50,71 @@ def load_unk_model():
     model.eval();
     return model
 
+def loss_func(pred, targ):
+    """
+    Want to maximize CE, so return negative since optimizer -> gradient descent
+    Args:
+        pred: model prediction
+        targ: true class, we want to decrease probability of this class
+    """
+    loss = -nn.CrossEntropyLoss()(pred, torch.LongTensor([targ]))
+    return loss
+
+def constrain(...):
+    """
+    Constrain delta to l_infty ball
+    """
+    # TODO
+    pass
+
+def reinforcce(log_prob, f, **kwargs):
+    """
+    Based on
+    https://github.com/pytorch/examples/blob/master/reinforcement_learning/reinforce.py
+    """
+    policy_loss = (-log_prob) * f
+    return policy_loss
+
+def relax_black(log_prob, f, f_cv):
+    """
+    Returns policy loss equivalent to:
+    (f(x) - c(x))*grad(log(policy)) + grad(c(x))
+    The l_infty constraint should appear elsewhere
+    Args:
+        f: unknown function
+        f_cv: control variate
+
+    Checkout https://github.com/duvenaud/relax/blob/master/pytorch_toy.py
+    """
+    ac = f - f_cv
+    g_cont_var = # grad from control variate
+    policy_loss = (-log_prob) * ac + f_cv
+    return policy_loss
+
 def train_black(args, data, unk_model, model, cv):
     """
     Main training loop for black box attack
     """
+    estimator = reinforce
     opt = optim.SGD(model.parameters(), lr=5e-3)
-    data = normalize(data)
+    data = normalize(data) # pig for testing
+    target = 341 # pig class for testing
     # Loop data. For now, just loop same image
     for i in range(30):
         # Get gradients for delta model
-        delta = model(data)
-        x_prime = data + delta
-        target_pred = model(x_prime)
-        cont_var = cv(x_prime)
-        dei
-        #TODO, not sure about policy log prob...
-        d_log_prob = torch.autograd.grad([x_prime], model.parameters(), grad_outputs=torch.ones_like(log_prob))[0]
-        d_
-        # Gradient from reinforce with control variate
-        g_reinforce = (target_pred - cont_var)*d_log_prob
-        g_cont_var = # grad from control variate
-        g_constraint = ... # grad from l_infty norm
-        gradients = g_baseline + g_cont_var + g_constraint
+        delta = model(data) # perturbation
+        x_prime = data + delta # attack sample
+        pred = unk_model(x_prime) # target model prediction
+        cont_var = cv(x_prime) # control variate prediction
+        f = loss_func(pred, target) # target loss
+        f_cv = loss_func(cont_var, target) # cont var loss
+        # Gradient from gradient estimator
+        policy_loss = estimator(x_prime, f, cont_var)
         opt.zero_grad()
-        for p in models.parameters():
-            #...update p.grad with gradients
+        policy_loss.backward()
         opt.step()
-
-        # Get gradients for control variate
-        #...grad to minimize variance?
+        # TODO: constrain delta
+        # Optimize control variate arguments
 
 def main(args):
     # Normalize image for ImageNet
@@ -95,6 +131,9 @@ def main(args):
 
     # Control Variate
     cv = models.FC(args.input_size, classes)
+
+    # Launch training
+    train_black(args, data, unk_model, model, cv)
 
 
 if __name__ == '__main__':
