@@ -1,4 +1,4 @@
-import torch
+
 from torch import nn, optim
 
 class Normalize(nn.Module):
@@ -11,7 +11,6 @@ class Normalize(nn.Module):
         self.std = torch.Tensor(std)
     def forward(self, x):
         return (x - self.mean.type_as(x)[None,:,None,None]) / self.std.type_as(x)[None,:,None,None]
-
 
 def display_tensor(tensor):
     plt.imshow((tensor)[0].detach().numpy().transpose(1,2,0))

@@ -51,7 +51,7 @@ def white_box_untargeted(model, image, normalize, epsilon):
     source_class = 341 # pig class
     # Create noise vector
     delta = torch.zeros_like(image, requires_grad=True)
-    # Optimize noise vector (only) to fool model
+    # Optimize noise vector to fool model
     opt = optim.SGD([delta], lr=1e-1)
 
     for t in range(30):
