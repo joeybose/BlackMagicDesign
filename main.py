@@ -143,7 +143,9 @@ def main(args):
     if args.debug:
         ipdb.set_trace()
 
-    # pred, delta = white_box_untargeted(args,data, unk_model, normalize)
+    # Test white box
+    if args.white:
+        pred, delta = white_box_untargeted(args,data, unk_model, normalize)
 
     # Attack model
     ipdb.set_trace()
@@ -183,6 +185,8 @@ if __name__ == '__main__':
                         help='random seed (default: 1)')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
+    parser.add_argument('--white', default=False, action='store_true',
+                        help='White Box test')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Debug')
     parser.add_argument('--model_path', type=str, default="mnist_cnn.pt",
