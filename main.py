@@ -8,7 +8,7 @@ from torchvision.models import resnet50
 import json
 import argparse
 from utils import *
-# import ipdb
+import ipdb
 
 def white_box_untargeted(args, image, model, normalize):
     source_class = 341 # pig class
