@@ -6,20 +6,26 @@ import models
 from torch import nn, optim
 from torchvision.models import resnet50
 import json
+import argparse
+from utils import *
+import ipdb
 
-def white_box_untargeted(args, model, image, normalize):
+def white_box_untargeted(args, image, model, normalize):
     source_class = 341 # pig class
     epsilon = 2./255
     # Create noise vector
-    delta = torch.zeros_like(image, requires_grad=True)
+    delta = tensor_to_cuda(torch.zeros_like(image,requires_grad=True))
     # Optimize noise vector (only) to fool model
     opt = optim.SGD([delta], lr=1e-1)
+    pig_tensor = image
+    target = tensor_to_cuda(torch.LongTensor([source_class]))
 
     for t in range(30):
         pred = model(normalize(pig_tensor + delta))
-        loss = -nn.CrossEntropyLoss()(pred, torch.LongTensor([source_class]))
+        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+        loss = -nn.CrossEntropyLoss()(pred, target)
         if t % 5 == 0:
-            print(t, loss.item())
+            print(t, out[0][0], loss.item())
 
         opt.zero_grad()
         loss.backward()
@@ -27,7 +33,7 @@ def white_box_untargeted(args, model, image, normalize):
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
         delta.data.clamp_(-epsilon, epsilon)
-    return pred, delta
+    return out, delta
 
 def get_data():
     """
@@ -38,7 +44,7 @@ def get_data():
        transforms.Resize(224),
        transforms.ToTensor(),
     ])
-    pig_tensor = preprocess(pig_img)[None,:,:,:]
+    pig_tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
     return pig_tensor
 
 def load_unk_model():
@@ -60,12 +66,11 @@ def loss_func(pred, targ):
     loss = -nn.CrossEntropyLoss()(pred, torch.LongTensor([targ]))
     return loss
 
-def constrain(...):
+def linf_constraint(grad):
     """
     Constrain delta to l_infty ball
     """
-    # TODO
-    pass
+    return torch.sign(grad)
 
 def reinforcce(log_prob, f, **kwargs):
     """
@@ -87,7 +92,7 @@ def relax_black(log_prob, f, f_cv):
     Checkout https://github.com/duvenaud/relax/blob/master/pytorch_toy.py
     """
     ac = f - f_cv
-    g_cont_var = # grad from control variate
+    g_cont_var = 0 # grad from control variate
     policy_loss = (-log_prob) * ac + f_cv
     return policy_loss
 
@@ -124,7 +129,11 @@ def main(args):
     data = get_data()
 
     # The unknown model to attack
-    unk_model = load_unk_model()
+    unk_model = to_cuda(load_unk_model())
+
+    # Try Whitebox Untargeted first
+    ipdb.set_trace()
+    pred, delta = white_box_untargeted(args,data, unk_model, normalize)
 
     # Attack model
     model = models.BlackAttack(args.input_size, args.latent_size)
@@ -166,4 +175,4 @@ if __name__ == '__main__':
 
     args.device = torch.device("cuda" if use_cuda else "cpu")
 
-    main()
+    main(args)
