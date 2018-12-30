@@ -8,7 +8,7 @@ from torchvision.models import resnet50
 import json
 import argparse
 from utils import *
-import ipdb
+# import ipdb
 
 def white_box_untargeted(args, image, model, normalize):
     source_class = 341 # pig class
@@ -132,8 +132,10 @@ def main(args):
     unk_model = to_cuda(load_unk_model())
 
     # Try Whitebox Untargeted first
-    ipdb.set_trace()
-    pred, delta = white_box_untargeted(args,data, unk_model, normalize)
+    if args.debug:
+        ipdb.set_trace()
+
+    # pred, delta = white_box_untargeted(args,data, unk_model, normalize)
 
     # Attack model
     model = models.BlackAttack(args.input_size, args.latent_size)
@@ -166,6 +168,8 @@ if __name__ == '__main__':
                         help='random seed (default: 1)')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
+    parser.add_argument('--debug', default=False, action='store_true',
+                        help='Debug')
     parser.add_argument('--model_path', type=str, default="mnist_cnn.pt",
                         help='where to save/load')
     args = parser.parse_args()
