@@ -1,3 +1,4 @@
+from comet_ml import Experiment
 import matplotlib.pyplot as plt
 from PIL import Image
 from torchvision import transforms
@@ -5,6 +6,9 @@ import torch
 import models
 from torch import nn, optim
 from torchvision.models import resnet50
+from torchvision.models.vgg import VGG
+import torchvision.models.densenet as densenet
+import torchvision.models.alexnet as alexnet
 import json
 import argparse
 from utils import *
@@ -19,11 +23,12 @@ def white_box_untargeted(args, image, model, normalize):
     opt = optim.SGD([delta], lr=1e-1)
     pig_tensor = image
     target = tensor_to_cuda(torch.LongTensor([source_class]))
-
     for t in range(30):
         pred = model(normalize(pig_tensor + delta))
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
         loss = -nn.CrossEntropyLoss()(pred, target)
+        if args.comet:
+            args.experiment.log_metric("Whitebox CE loss",loss,step=t)
         if t % 5 == 0:
             print(t, out[0][0], loss.item())
 
@@ -33,28 +38,15 @@ def white_box_untargeted(args, image, model, normalize):
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
         delta.data.clamp_(-epsilon, epsilon)
+
+    if args.comet:
+        clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
+        adv_image = (pig_tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        plot_image_to_comet(args,clean_image,"pig.png")
+        plot_image_to_comet(args,adv_image,"Adv_pig.png")
+        plot_image_to_comet(args,delta_image,"delta_pig.png")
     return out, delta
-
-def get_data():
-    """
-    Data loader. For now, just a test sample
-    """
-    pig_img = Image.open("references/adver_robust/introduction/pig.jpg")
-    preprocess = transforms.Compose([
-       transforms.Resize(224),
-       transforms.ToTensor(),
-    ])
-    pig_tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
-    return pig_tensor
-
-def load_unk_model():
-    """
-    Load an unknown model. Used for convenience to easily swap unk model
-    """
-    # load pre-trained ResNet50
-    model = resnet50(pretrained=True)
-    model.eval();
-    return model
 
 def loss_func(pred, targ):
     """
@@ -72,7 +64,7 @@ def linf_constraint(grad):
     """
     return torch.sign(grad)
 
-def reinforcce(log_prob, f, **kwargs):
+def reinforce(log_prob, f, **kwargs):
     """
     Based on
     https://github.com/pytorch/examples/blob/master/reinforcement_learning/reinforce.py
@@ -104,6 +96,7 @@ def train_black(args, data, unk_model, model, cv):
     opt = optim.SGD(model.parameters(), lr=5e-3)
     data = normalize(data) # pig for testing
     target = 341 # pig class for testing
+    epsilon = 2./255
     # Loop data. For now, just loop same image
     for i in range(30):
         # Get gradients for delta model
@@ -113,13 +106,28 @@ def train_black(args, data, unk_model, model, cv):
         cont_var = cv(x_prime) # control variate prediction
         f = loss_func(pred, target) # target loss
         f_cv = loss_func(cont_var, target) # cont var loss
+        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
         # Gradient from gradient estimator
         policy_loss = estimator(x_prime, f, cont_var)
         opt.zero_grad()
         policy_loss.backward()
         opt.step()
+        delta.data.clamp_(-epsilon, epsilon)
+        if args.comet:
+            args.experiment.log_metric("Blackbox CE loss",f,step=i)
+            args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
+        if i % 5 == 0:
+            print(i, out[0][0], f.item())
         # TODO: constrain delta
         # Optimize control variate arguments
+    if args.comet:
+        clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
+        adv_image = (pig_tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        ipdb.set_trace()
+        plot_image_to_comet(args,clean_image,"BB_pig.png")
+        plot_image_to_comet(args,adv_image,"BB_Adv_pig.png")
+        plot_image_to_comet(args,delta_image,"BB_delta_pig.png")
 
 def main(args):
     # Normalize image for ImageNet
@@ -138,10 +146,11 @@ def main(args):
     # pred, delta = white_box_untargeted(args,data, unk_model, normalize)
 
     # Attack model
-    model = models.BlackAttack(args.input_size, args.latent_size)
+    ipdb.set_trace()
+    model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
 
     # Control Variate
-    cv = models.FC(args.input_size, classes)
+    cv = to_cuda(models.FC(args.input_size, classes))
 
     # Launch training
     train_black(args, data, unk_model, model, cv)
@@ -164,6 +173,12 @@ if __name__ == '__main__':
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
+    parser.add_argument("--comet", action="store_true", default=False,
+            help='Use comet for logging')
+    parser.add_argument("--comet_username", type=str, default="joeybose",
+            help='Username for comet logging')
+    parser.add_argument("--comet_apikey", type=str,\
+            default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--test', default=False, action='store_true',
@@ -172,11 +187,19 @@ if __name__ == '__main__':
                         help='Debug')
     parser.add_argument('--model_path', type=str, default="mnist_cnn.pt",
                         help='where to save/load')
+    parser.add_argument('--namestr', type=str, default='BMD', \
+            help='additional info in output filename to help identify experiments')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)
 
     args.device = torch.device("cuda" if use_cuda else "cpu")
+    if args.comet:
+        experiment = Experiment(api_key=args.comet_apikey,\
+                project_name="black-magic-design",\
+                workspace=args.comet_username)
+        experiment.set_name(args.namestr)
+        args.experiment = experiment
 
     main(args)
