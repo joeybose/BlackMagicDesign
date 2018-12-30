@@ -1,5 +1,6 @@
 import torch
 from torch import nn, optim
+import matplotlib.pyplot as plt
 
 class Normalize(nn.Module):
     """
@@ -29,6 +30,12 @@ def display_tensor(tensor):
     plt.imshow((tensor)[0].detach().numpy().transpose(1,2,0))
     plt.show()
 
+def plot_image_to_comet(args,image,name):
+    fig = plt.figure()
+    im1 = fig.figimage(image)
+    plt.savefig(name)
+    args.experiment.log_image(name,overwrite=True)
+    plt.clf()
 
 def load_imagenet_classes():
     with open("references/adver_robust/introduction/imagenet_class_index.json") as f:

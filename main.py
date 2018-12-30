@@ -1,3 +1,4 @@
+from comet_ml import Experiment
 import matplotlib.pyplot as plt
 from PIL import Image
 from torchvision import transforms
@@ -19,11 +20,12 @@ def white_box_untargeted(args, image, model, normalize):
     opt = optim.SGD([delta], lr=1e-1)
     pig_tensor = image
     target = tensor_to_cuda(torch.LongTensor([source_class]))
-
     for t in range(30):
         pred = model(normalize(pig_tensor + delta))
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
         loss = -nn.CrossEntropyLoss()(pred, target)
+        if args.comet:
+            args.experiment.log_metric("Whitebox CE loss",loss,step=t)
         if t % 5 == 0:
             print(t, out[0][0], loss.item())
 
@@ -33,6 +35,15 @@ def white_box_untargeted(args, image, model, normalize):
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
         delta.data.clamp_(-epsilon, epsilon)
+
+    if args.comet:
+        clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
+        adv_image = (pig_tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        ipdb.set_trace()
+        plot_image_to_comet(args,clean_image,"pig.png")
+        plot_image_to_comet(args,adv_image,"Adv_pig.png")
+        plot_image_to_comet(args,delta_image,"delta_pig.png")
     return out, delta
 
 def get_data():
@@ -132,7 +143,6 @@ def main(args):
     unk_model = to_cuda(load_unk_model())
 
     # Try Whitebox Untargeted first
-    ipdb.set_trace()
     pred, delta = white_box_untargeted(args,data, unk_model, normalize)
 
     # Attack model
@@ -162,17 +172,31 @@ if __name__ == '__main__':
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
+    parser.add_argument("--comet", action="store_true", default=False,
+            help='Use comet for logging')
+    parser.add_argument("--comet_username", type=str, default="joeybose",
+            help='Username for comet logging')
+    parser.add_argument("--comet_apikey", type=str,\
+            default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
     parser.add_argument('--model_path', type=str, default="mnist_cnn.pt",
                         help='where to save/load')
+    parser.add_argument('--namestr', type=str, default='BMD', \
+            help='additional info in output filename to help identify experiments')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)
 
     args.device = torch.device("cuda" if use_cuda else "cpu")
+    if args.comet:
+        experiment = Experiment(api_key=args.comet_apikey,\
+                project_name="black-magic-design",\
+                workspace=args.comet_username)
+        experiment.set_name(args.namestr)
+        args.experiment = experiment
 
     main(args)
