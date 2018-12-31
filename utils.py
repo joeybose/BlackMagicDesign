@@ -87,8 +87,7 @@ def main_mnist(args):
         train_mnist(args, model, args.device, train_loader, optimizer, epoch)
         test_mnist(args, model, args.device, test_loader)
 
-    if args.save_model:
-        torch.save(model.state_dict(),"mnist_cnn.pt")
+    torch.save(model.state_dict(),"mnist_cnn.pt")
     return model
 
 def train_mnist(args, model, device, train_loader, optimizer, epoch):
