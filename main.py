@@ -105,11 +105,15 @@ def train_black(args, data, unk_model, model, cv):
         plot_image_to_comet(args,delta_image,"BB_delta_pig.png")
 
 def main(args):
-    # Normalize image for ImageNet
-    normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    if args.mnist:
+        # Normalize image for MNIST
+        normalize = Normalize(mean=(0.1307,), std=(0.3081,))
+    else:
+        # Normalize image for ImageNet
+        normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
     # Load data
-    data = get_data(args)
+    data,target = get_data(args)
 
     # The unknown model to attack
     unk_model = load_unk_model(args)
@@ -123,7 +127,7 @@ def main(args):
 
     # Test white box
     if args.white:
-        pred, delta = white_box_untargeted(args,data, unk_model, normalize)
+        pred, delta = white_box_untargeted(args, data, target, unk_model, normalize)
 
     # Attack model
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))

@@ -5,12 +5,14 @@ import torchvision.transforms as transforms
 from torchvision import datasets
 from torchvision.models import resnet50
 import torchvision.utils as vutils
+from torchvision.utils import save_image
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from random import randint
 from PIL import Image
 import os
 from models import Net
+import ipdb
 
 class Normalize(nn.Module):
     """
@@ -41,11 +43,9 @@ def display_tensor(tensor):
     plt.show()
 
 def plot_image_to_comet(args,image,name):
-    fig = plt.figure()
-    im1 = fig.figimage(image)
-    plt.savefig(name)
-    args.experiment.log_image(name,overwrite=True)
-    plt.clf()
+    save = to_img(image.cpu().data)
+    save_image(save, name)
+    args.experiment.log_image(name,overwrite=False)
 
 def load_imagenet_classes():
     with open("references/adver_robust/introduction/imagenet_class_index.json") as f:
@@ -57,9 +57,11 @@ def get_data(args):
     Data loader. For now, just a test sample
     """
     if args.mnist:
-        trainloader, testloader = load_mnist()
-        tensor = tensor_to_cuda(trainloader.dataset[randint(1,\
-            100)][0].unsqueeze(0))
+        trainloader, testloader = load_mnist(normalize=False)
+        tensor,target = trainloader.dataset[randint(1,\
+            100)]
+        tensor = tensor_to_cuda(tensor.unsqueeze(0))
+        target = tensor_to_cuda(target.unsqueeze(0))
     else:
         pig_img = Image.open("references/adver_robust/introduction/pig.jpg")
         preprocess = transforms.Compose([
@@ -67,7 +69,9 @@ def get_data(args):
            transforms.ToTensor(),
         ])
         tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
-    return tensor
+        source_class = 341 # pig class
+        target = tensor_to_cuda(torch.LongTensor([source_class]))
+    return tensor,target
 
 def load_unk_model(args):
     """
@@ -89,7 +93,7 @@ def load_unk_model(args):
 def main_mnist(args):
     model = Net().to(args.device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    train_loader, test_loader = load_mnist()
+    train_loader, test_loader = load_mnist(normalize=False)
     for epoch in range(1,11):
         train_mnist(args, model, args.device, train_loader, optimizer, epoch)
         test_mnist(args, model, args.device, test_loader)
@@ -153,24 +157,27 @@ def load_cifar():
     testloader = torch.utils.data.DataLoader(testset,batch_size=128,shuffle=False, num_workers=8)
     return trainloader, testloader
 
-def load_mnist():
+def load_mnist(normalize=True):
     """
     Load and normalize the training and test data for MNIST
     """
     print('==> Preparing data..')
+    if normalize:
+        mnist_transforms = transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])
+    else:
+        mnist_transforms = transforms.Compose([
+                           transforms.ToTensor(),
+                       ])
     trainloader = torch.utils.data.DataLoader(
         datasets.MNIST('./data', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=1024, shuffle=True)
+                       transform=mnist_transforms),\
+                               batch_size=1024, shuffle=True)
     testloader = torch.utils.data.DataLoader(
-        datasets.MNIST('./data', train=False, transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=1024, shuffle=True)
+        datasets.MNIST('./data', train=False, transform=mnist_transforms),\
+                batch_size=1024, shuffle=True)
     return trainloader, testloader
 
 def to_img(x):

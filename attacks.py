@@ -16,17 +16,19 @@ import argparse
 from utils import *
 import ipdb
 
-def white_box_untargeted(args, image, model, normalize):
-    source_class = 341 # pig class
-    epsilon = 2./255
+def white_box_untargeted(args, image, target, model, normalize=None):
+    epsilon = 100.
     # Create noise vector
     delta = torch.zeros_like(image,requires_grad=True).to(args.device)
     # Optimize noise vector (only) to fool model
     opt = optim.SGD([delta], lr=1e-1)
-    pig_tensor = image
-    target = tensor_to_cuda(torch.LongTensor([source_class]))
-    for t in range(30):
-        pred = model(normalize(pig_tensor + delta))
+    tensor = image
+    print("Target is %d" %(target))
+    for t in range(50):
+        if normalize is not None:
+            pred = model(normalize(tensor + delta))
+        else:
+            pred = model(tensor + delta)
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
         loss = -nn.CrossEntropyLoss()(pred, target)
         if args.comet:
@@ -40,14 +42,19 @@ def white_box_untargeted(args, image, model, normalize):
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
         delta.data.clamp_(-epsilon, epsilon)
-
+    ipdb.set_trace()
     if args.comet:
-        clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
-        adv_image = (pig_tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        plot_image_to_comet(args,clean_image,"pig.png")
-        plot_image_to_comet(args,adv_image,"Adv_pig.png")
-        plot_image_to_comet(args,delta_image,"delta_pig.png")
+        if not args.mnist:
+            clean_image = (tensor)[0].detach().cpu().numpy().transpose(1,2,0)
+            adv_image = (tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
+            delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        else:
+            clean_image = (tensor)[0].detach()
+            adv_image = (tensor + delta)[0].detach()
+            delta_image = (delta)[0].detach().cpu()
+        plot_image_to_comet(args,clean_image,"clean.png")
+        plot_image_to_comet(args,adv_image,"Adv.png")
+        plot_image_to_comet(args,delta_image,"delta.png")
     return out, delta
 
 def loss_func(pred, targ):
