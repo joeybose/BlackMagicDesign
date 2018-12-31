@@ -7,6 +7,7 @@ from torchvision.models import resnet50
 import torchvision.utils as vutils
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from random import randint
 from PIL import Image
 import os
 from models import Net
@@ -51,17 +52,21 @@ def load_imagenet_classes():
         imagenet_classes = {int(i):x[1] for i,x in json.load(f).items()}
     return imagenet_classes
 
-def get_data():
+def get_data(args):
     """
     Data loader. For now, just a test sample
     """
-    pig_img = Image.open("references/adver_robust/introduction/pig.jpg")
-    preprocess = transforms.Compose([
-       transforms.Resize(224),
-       transforms.ToTensor(),
-    ])
-    pig_tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
-    return pig_tensor
+    if args.mnist:
+        trainloader, testloader = load_mnist()
+        tensor = trainloader.dataset[randint(1, 100)][0].unsqueeze(0)
+    else:
+        pig_img = Image.open("references/adver_robust/introduction/pig.jpg")
+        preprocess = transforms.Compose([
+           transforms.Resize(224),
+           transforms.ToTensor(),
+        ])
+        tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
+    return tensor
 
 def load_unk_model(args):
     """

@@ -120,12 +120,15 @@ def train_mnist_vae(args):
 
         print('====> Epoch: {} Average loss: {:.4f}'.format(
             epoch, train_loss / len(trainloader.dataset)))
+        if args.comet:
+            args.experiment.log_metric("MNIST VAE loss",train_loss,step=epoch)
         if epoch % 10 == 0:
             save = to_img(recon_batch.cpu().data)
             save_image(save, 'results/image_{}.png'.format(epoch))
             if args.comet:
                 args.experiment.log_image('results/image_{}.png'.format(epoch),overwrite=False)
-    model.save("mnist_enc.pth","mnist_dec.pth")
+    ipdb.set_trace()
+    model.module.save("mnist_enc.pt","mnist_dec.pt")
 
 def train_black(args, data, unk_model, model, cv):
     """
@@ -173,7 +176,7 @@ def main(args):
     normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
     # Load data
-    data = get_data()
+    data = get_data(args)
 
     if args.train_vae:
         train_mnist_vae(args)
