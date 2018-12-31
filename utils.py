@@ -1,4 +1,5 @@
 import torch
+import torchvision
 from torch import nn, optim
 import torchvision.transforms as transforms
 from torchvision.models import resnet50
@@ -66,21 +67,22 @@ def load_unk_model():
     model = resnet50(pretrained=True)
     model.eval();
     return model
+
 def load_cifar():
     """
     Load and normalize the training and test data for CIFAR10
     """
     print('==> Preparing data..')
     transform_train = transforms.Compose([
-	transforms.RandomCrop(32, padding=4),
-	transforms.RandomHorizontalFlip(),
+	# transforms.RandomCrop(32, padding=4),
+	# transforms.RandomHorizontalFlip(),
 	transforms.ToTensor(),
-	transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+	# transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
 
     transform_test = transforms.Compose([
 	transforms.ToTensor(),
-	transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+	# transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
@@ -90,3 +92,23 @@ def load_cifar():
     testloader = torch.utils.data.DataLoader(testset,batch_size=128,shuffle=False, num_workers=8)
     return trainloader, testloader
 
+def load_mnist():
+    """
+    Load and normalize the training and test data for MNIST
+    """
+    print('==> Preparing data..')
+    img_transform = transforms.Compose([
+        transforms.ToTensor()
+        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+
+    trainset = torchvision.datasets.MNIST('./data', transform=img_transform, train=True, download=True)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=1024, shuffle=True)
+    testset = torchvision.datasets.MNIST('./data', transform=img_transform,train=False, download=True)
+    testloader = torch.utils.data.DataLoader(trainset, batch_size=1024,shuffle=False)
+    return trainloader, testloader
+
+def to_img(x):
+    x = x.clamp(0, 1)
+    x = x.view(x.size(0), 1, 28, 28)
+    return x

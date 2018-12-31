@@ -3,12 +3,16 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from torchvision import transforms
 import torch
-import models
+from models import *
 from torch import nn, optim
 from torchvision.models import resnet50
 from torchvision.models.vgg import VGG
 import torchvision.models.densenet as densenet
 import torchvision.models.alexnet as alexnet
+from torchvision.utils import save_image
+import torch.nn.functional as F
+from torch import optim
+from torch.autograd import Variable
 import json
 import argparse
 from utils import *
@@ -88,6 +92,41 @@ def relax_black(log_prob, f, f_cv):
     policy_loss = (-log_prob) * ac + f_cv
     return policy_loss
 
+def train_mnist_vae(args):
+    model = to_cuda(MnistVAE())
+    trainloader, testloader = load_mnist()
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    for epoch in range(100):
+        model.train()
+        train_loss = 0
+        for batch_idx, data in enumerate(trainloader):
+            img, _ = data
+            img = img.view(img.size(0), -1)
+            img = Variable(img)
+            if torch.cuda.is_available():
+                img = img.cuda()
+            optimizer.zero_grad()
+            recon_batch, mu, logvar = model(img)
+            loss = vae_loss_function(recon_batch, img, mu, logvar)
+            loss.backward()
+            train_loss += loss.data[0]
+            optimizer.step()
+            if batch_idx % 100 == 0:
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    epoch,
+                    batch_idx * len(img),
+                    len(trainloader.dataset), 100. * batch_idx / len(trainloader),
+                    loss.data[0] / len(img)))
+
+        print('====> Epoch: {} Average loss: {:.4f}'.format(
+            epoch, train_loss / len(trainloader.dataset)))
+        if epoch % 10 == 0:
+            save = to_img(recon_batch.cpu().data)
+            save_image(save, 'results/image_{}.png'.format(epoch))
+            if args.comet:
+                args.experiment.log_image('results/image_{}.png'.format(epoch),overwrite=False)
+    model.save("mnist_enc.pth","mnist_dec.pth")
+
 def train_black(args, data, unk_model, model, cv):
     """
     Main training loop for black box attack
@@ -135,6 +174,9 @@ def main(args):
 
     # Load data
     data = get_data()
+
+    if args.train_vae:
+        train_mnist_vae(args)
 
     # The unknown model to attack
     unk_model = to_cuda(load_unk_model())
@@ -185,6 +227,8 @@ if __name__ == '__main__':
                         help='random seed (default: 1)')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
+    parser.add_argument('--train_vae', default=False, action='store_true',
+                        help='Train VAE')
     parser.add_argument('--white', default=False, action='store_true',
                         help='White Box test')
     parser.add_argument('--debug', default=False, action='store_true',
