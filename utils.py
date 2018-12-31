@@ -58,7 +58,8 @@ def get_data(args):
     """
     if args.mnist:
         trainloader, testloader = load_mnist()
-        tensor = trainloader.dataset[randint(1, 100)][0].unsqueeze(0)
+        tensor = tensor_to_cuda(trainloader.dataset[randint(1,\
+            100)][0].unsqueeze(0))
     else:
         pig_img = Image.open("references/adver_robust/introduction/pig.jpg")
         preprocess = transforms.Compose([
@@ -76,11 +77,12 @@ def load_unk_model(args):
         if os.path.exists("mnist_cnn.pt"):
             model = Net().to(args.device)
             model.load_state_dict(torch.load("mnist_cnn.pt"))
+            model.eval()
         else:
             model = main_mnist(args)
     else:
         # load pre-trained ResNet50
-        model = resnet50(pretrained=True)
+        model = resnet50(pretrained=True).to(args.device)
     model.eval()
     return model
 

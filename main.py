@@ -22,7 +22,7 @@ def white_box_untargeted(args, image, model, normalize):
     source_class = 341 # pig class
     epsilon = 2./255
     # Create noise vector
-    delta = tensor_to_cuda(torch.zeros_like(image,requires_grad=True))
+    delta = torch.zeros_like(image,requires_grad=True).to(args.device)
     # Optimize noise vector (only) to fool model
     opt = optim.SGD([delta], lr=1e-1)
     pig_tensor = image
@@ -184,20 +184,19 @@ def main(args):
     # Load data
     data = get_data(args)
 
-
     # The unknown model to attack
-    unk_model = to_cuda(load_unk_model(args))
+    unk_model = load_unk_model(args)
 
     # Try Whitebox Untargeted first
     if args.debug:
         ipdb.set_trace()
 
+    if args.train_vae:
+        encoder,decoder = train_mnist_vae(args)
+
     # Test white box
     if args.white:
         pred, delta = white_box_untargeted(args,data, unk_model, normalize)
-
-    if args.train_vae:
-        encoder,decoder = train_mnist_vae(args)
 
     # Attack model
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
