@@ -179,7 +179,8 @@ def main(args):
         train_mnist_vae(args)
 
     # The unknown model to attack
-    unk_model = to_cuda(load_unk_model())
+    ipdb.set_trace()
+    unk_model = to_cuda(load_unk_model(args))
 
     # Try Whitebox Untargeted first
     if args.debug:
@@ -190,7 +191,6 @@ def main(args):
         pred, delta = white_box_untargeted(args,data, unk_model, normalize)
 
     # Attack model
-    ipdb.set_trace()
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
 
     # Control Variate
@@ -229,6 +229,8 @@ if __name__ == '__main__':
                         help='just test model and print accuracy')
     parser.add_argument('--train_vae', default=False, action='store_true',
                         help='Train VAE')
+    parser.add_argument('--mnist', default=False, action='store_true',
+                        help='Use MNIST as Dataset')
     parser.add_argument('--white', default=False, action='store_true',
                         help='White Box test')
     parser.add_argument('--debug', default=False, action='store_true',

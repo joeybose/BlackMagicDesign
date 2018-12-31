@@ -2,10 +2,14 @@ import torch
 import torchvision
 from torch import nn, optim
 import torchvision.transforms as transforms
+from torchvision import datasets
 from torchvision.models import resnet50
 import torchvision.utils as vutils
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from PIL import Image
+import os
+from models import Net
 
 class Normalize(nn.Module):
     """
@@ -59,14 +63,65 @@ def get_data():
     pig_tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
     return pig_tensor
 
-def load_unk_model():
+def load_unk_model(args):
     """
     Load an unknown model. Used for convenience to easily swap unk model
     """
-    # load pre-trained ResNet50
-    model = resnet50(pretrained=True)
-    model.eval();
+    if args.mnist:
+        if os.path.exists("mnist_cnn.pt"):
+            model = Net().to(args.device)
+            model.load_state_dict(torch.load("mnist_cnn.pt"))
+        else:
+            model = main_mnist(args)
+    else:
+        # load pre-trained ResNet50
+        model = resnet50(pretrained=True)
+    model.eval()
     return model
+
+def main_mnist(args):
+    model = Net().to(args.device)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    train_loader, test_loader = load_mnist()
+    for epoch in range(1,11):
+        train_mnist(args, model, args.device, train_loader, optimizer, epoch)
+        test_mnist(args, model, args.device, test_loader)
+
+    if args.save_model:
+        torch.save(model.state_dict(),"mnist_cnn.pt")
+    return model
+
+def train_mnist(args, model, device, train_loader, optimizer, epoch):
+    model.train()
+    for batch_idx, (data, target) in enumerate(train_loader):
+        data, target = data.to(device), target.to(device)
+        optimizer.zero_grad()
+        output = model(data)
+        loss = F.nll_loss(output, target)
+        loss.backward()
+        optimizer.step()
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loader.dataset),
+                100. * batch_idx / len(train_loader), loss.item()))
+
+def test_mnist(args, model, device, test_loader):
+    model.eval()
+    test_loss = 0
+    correct = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            test_loss += F.nll_loss(output, target, reduction='sum').item() # sum up batch loss
+            pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+            correct += pred.eq(target.view_as(pred)).sum().item()
+
+    test_loss /= len(test_loader.dataset)
+
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        test_loss, correct, len(test_loader.dataset),
+        100. * correct / len(test_loader.dataset)))
 
 def load_cifar():
     """
@@ -97,15 +152,19 @@ def load_mnist():
     Load and normalize the training and test data for MNIST
     """
     print('==> Preparing data..')
-    img_transform = transforms.Compose([
-        transforms.ToTensor()
-        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-
-    trainset = torchvision.datasets.MNIST('./data', transform=img_transform, train=True, download=True)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=1024, shuffle=True)
-    testset = torchvision.datasets.MNIST('./data', transform=img_transform,train=False, download=True)
-    testloader = torch.utils.data.DataLoader(trainset, batch_size=1024,shuffle=False)
+    trainloader = torch.utils.data.DataLoader(
+        datasets.MNIST('./data', train=True, download=True,
+                       transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),
+        batch_size=1024, shuffle=True)
+    testloader = torch.utils.data.DataLoader(
+        datasets.MNIST('./data', train=False, transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),
+        batch_size=1024, shuffle=True)
     return trainloader, testloader
 
 def to_img(x):
