@@ -216,6 +216,6 @@ class MnistVAE(nn.Module):
         torch.save(self.encoder.state_dict(), fn_enc)
         torch.save(self.decoder.state_dict(), fn_dec)
 
-    def load(self, fn,enc, fn_dec):
+    def load(self, fn_enc, fn_dec):
         self.encoder.load_state_dict(torch.load(fn_enc))
         self.decoder.load_state_dict(torch.load(fn_dec))

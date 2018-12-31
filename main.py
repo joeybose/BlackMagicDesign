@@ -94,41 +94,47 @@ def relax_black(log_prob, f, f_cv):
 
 def train_mnist_vae(args):
     model = to_cuda(MnistVAE())
-    trainloader, testloader = load_mnist()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    for epoch in range(100):
-        model.train()
-        train_loss = 0
-        for batch_idx, data in enumerate(trainloader):
-            img, _ = data
-            img = img.view(img.size(0), -1)
-            img = Variable(img)
-            if torch.cuda.is_available():
-                img = img.cuda()
-            optimizer.zero_grad()
-            recon_batch, mu, logvar = model(img)
-            loss = vae_loss_function(recon_batch, img, mu, logvar)
-            loss.backward()
-            train_loss += loss.data[0]
-            optimizer.step()
-            if batch_idx % 100 == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch,
-                    batch_idx * len(img),
-                    len(trainloader.dataset), 100. * batch_idx / len(trainloader),
-                    loss.data[0] / len(img)))
+    if os.path.exists("mnist_enc.pt") and os.path.exists("mnist_dec.pt"):
+        model.module.load("mnist_enc.pt","mnist_dec.pt")
+        encoder = model.module.encoder
+        decoder = model.module.decoder
+    else:
+        trainloader, testloader = load_mnist()
+        optimizer = optim.Adam(model.parameters(), lr=1e-3)
+        for epoch in range(100):
+            model.train()
+            train_loss = 0
+            for batch_idx, data in enumerate(trainloader):
+                img, _ = data
+                img = img.view(img.size(0), -1)
+                img = Variable(img)
+                if torch.cuda.is_available():
+                    img = img.cuda()
+                optimizer.zero_grad()
+                recon_batch, mu, logvar = model(img)
+                loss = vae_loss_function(recon_batch, img, mu, logvar)
+                loss.backward()
+                train_loss += loss.data[0]
+                optimizer.step()
+                if batch_idx % 100 == 0:
+                    print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                        epoch,
+                        batch_idx * len(img),
+                        len(trainloader.dataset), 100. * batch_idx / len(trainloader),
+                        loss.data[0] / len(img)))
 
-        print('====> Epoch: {} Average loss: {:.4f}'.format(
-            epoch, train_loss / len(trainloader.dataset)))
-        if args.comet:
-            args.experiment.log_metric("MNIST VAE loss",train_loss,step=epoch)
-        if epoch % 10 == 0:
-            save = to_img(recon_batch.cpu().data)
-            save_image(save, 'results/image_{}.png'.format(epoch))
+            print('====> Epoch: {} Average loss: {:.4f}'.format(
+                epoch, train_loss / len(trainloader.dataset)))
             if args.comet:
-                args.experiment.log_image('results/image_{}.png'.format(epoch),overwrite=False)
-    ipdb.set_trace()
-    model.module.save("mnist_enc.pt","mnist_dec.pt")
+                args.experiment.log_metric("MNIST VAE loss",train_loss,step=epoch)
+            if epoch % 10 == 0:
+                save = to_img(recon_batch.cpu().data)
+                save_image(save, 'results/image_{}.png'.format(epoch))
+                if args.comet:
+                    args.experiment.log_image('results/image_{}.png'.format(epoch),overwrite=False)
+        model.module.save("mnist_enc.pt","mnist_dec.pt")
+
+    return encoder, decoder
 
 def train_black(args, data, unk_model, model, cv):
     """
@@ -178,11 +184,8 @@ def main(args):
     # Load data
     data = get_data(args)
 
-    if args.train_vae:
-        train_mnist_vae(args)
 
     # The unknown model to attack
-    ipdb.set_trace()
     unk_model = to_cuda(load_unk_model(args))
 
     # Try Whitebox Untargeted first
@@ -192,6 +195,9 @@ def main(args):
     # Test white box
     if args.white:
         pred, delta = white_box_untargeted(args,data, unk_model, normalize)
+
+    if args.train_vae:
+        encoder,decoder = train_mnist_vae(args)
 
     # Attack model
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
