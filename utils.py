@@ -73,7 +73,10 @@ def get_data(args):
         tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
         source_class = 341 # pig class
         target = tensor_to_cuda(torch.LongTensor([source_class]))
-    return tensor,target
+
+    # Get flat input size
+    args.input_size = tensor[0][0].flatten().shape[0]
+    return tensor, target
 
 def load_unk_model(args):
     """
