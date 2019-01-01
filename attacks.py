@@ -153,6 +153,21 @@ def white_box_generator(args, image, target, model, G):
         plot_image_to_comet(args,delta_image,"delta.png")
     return out, delta
 
+def reward(pred, targ):
+    """
+    BlackBox reward, 1 - prediction for target class
+        pred: model prediction
+        targ: true class, we want to decrease probability of this class
+    """
+    pred = F.softmax(pred, dim=1)
+    gather = pred[:,targ] # gather target predictions
+    ones = torch.ones_like(gather)
+    r = ones - gather
+    r = gather.mean()
+
+    return r
+
+
 def loss_func(pred, targ):
     """
     Want to maximize CE, so return negative since optimizer -> gradient descent
@@ -161,6 +176,7 @@ def loss_func(pred, targ):
         targ: true class, we want to decrease probability of this class
     """
     loss = -nn.CrossEntropyLoss()(pred, torch.LongTensor([targ]))
+
     return loss
 
 def linf_constraint(grad):
@@ -174,7 +190,7 @@ def reinforce(log_prob, f, **kwargs):
     Based on
     https://github.com/pytorch/examples/blob/master/reinforcement_learning/reinforce.py
     """
-    policy_loss = (-log_prob) * f
+    policy_loss = (-log_prob) * f.detach()
     return policy_loss
 
 def relax_black(log_prob, f, f_cv):
