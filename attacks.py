@@ -9,40 +9,64 @@ import torchvision.models.densenet as densenet
 import torchvision.models.alexnet as alexnet
 from torchvision.utils import save_image
 import torch.nn.functional as F
+from advertorch.utils import batch_multiply
+from advertorch.utils import batch_clamp
+from advertorch.utils import clamp
 from torch import optim
 from torch.autograd import Variable
 import json
 import argparse
 from utils import *
 import ipdb
+from advertorch.attacks import LinfPGDAttack
+
+def whitebox_pgd(args, image, target, model, normalize=None):
+    adversary = LinfPGDAttack(
+	model, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.3,
+	nb_iter=40, eps_iter=0.01, rand_init=True, clip_min=0.0, clip_max=1.0,
+	targeted=False)
+    adv_image = adversary.perturb(image, target)
+    print("Target is %d" %(target))
+    pred = model(adv_image)
+    out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+    print("Adv Target is %d" %(out))
+    if args.comet:
+        clean_image = (image)[0].detach()
+        adv_image = adv_image[0].detach()
+        plot_image_to_comet(args,clean_image,"clean.png")
+        plot_image_to_comet(args,adv_image,"Adv.png")
+    return pred, clamp(clean_image - adv_image,0.,1.)
 
 def white_box_untargeted(args, image, target, model, normalize=None):
-    epsilon = 100.
+    epsilon = 0.3
     # Create noise vector
     delta = torch.zeros_like(image,requires_grad=True).to(args.device)
     # Optimize noise vector (only) to fool model
-    opt = optim.SGD([delta], lr=1e-1)
     tensor = image
     print("Target is %d" %(target))
-    for t in range(50):
+    for t in range(args.PGD_steps):
         if normalize is not None:
             pred = model(normalize(tensor + delta))
         else:
             pred = model(tensor + delta)
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-        loss = -nn.CrossEntropyLoss()(pred, target)
+        loss = nn.CrossEntropyLoss(reduction="sum")(pred, target)
+        if out != target:
+            print(t, out[0][0], loss.item())
+            break
         if args.comet:
             args.experiment.log_metric("Whitebox CE loss",loss,step=t)
         if t % 5 == 0:
             print(t, out[0][0], loss.item())
 
-        opt.zero_grad()
         loss.backward()
-        opt.step()
+        grad_sign = delta.grad.data.sign()
+        delta.data = delta.data + batch_multiply(0.01, grad_sign)
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
         delta.data.clamp_(-epsilon, epsilon)
-    ipdb.set_trace()
+        delta.data = clamp(tensor.data + delta.data,0.,1.) - tensor.data
+        delta.grad.data.zero_()
     if args.comet:
         if not args.mnist:
             clean_image = (tensor)[0].detach().cpu().numpy().transpose(1,2,0)

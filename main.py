@@ -99,7 +99,6 @@ def train_black(args, data, unk_model, model, cv):
         clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
         adv_image = (pig_tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
         delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        ipdb.set_trace()
         plot_image_to_comet(args,clean_image,"BB_pig.png")
         plot_image_to_comet(args,adv_image,"BB_Adv_pig.png")
         plot_image_to_comet(args,delta_image,"BB_delta_pig.png")
@@ -107,7 +106,8 @@ def train_black(args, data, unk_model, model, cv):
 def main(args):
     if args.mnist:
         # Normalize image for MNIST
-        normalize = Normalize(mean=(0.1307,), std=(0.3081,))
+        # normalize = Normalize(mean=(0.1307,), std=(0.3081,))
+        normalize = None
     else:
         # Normalize image for ImageNet
         normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -128,6 +128,7 @@ def main(args):
     # Test white box
     if args.white:
         pred, delta = white_box_untargeted(args, data, target, unk_model, normalize)
+        pred, delta = whitebox_pgd(args, data, target, unk_model, normalize)
 
     # Attack model
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
@@ -148,7 +149,7 @@ if __name__ == '__main__':
                         help='input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--steps', type=int, default=30, metavar='N',
+    parser.add_argument('--PGD_steps', type=int, default=100, metavar='N',
                         help='max gradient steps (default: 30)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
