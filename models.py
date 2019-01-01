@@ -15,6 +15,11 @@ class FC(nn.Module):
         self.fc4 = nn.Linear(400, classes)
 
     def forward(self, x):
+        # Check if x needs to be reshaped
+        if len(x.shape)==4:
+            batch, chan, h, w = x.shape
+            x = x.view(batch,chan,h*w).squeeze(1)
+
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
@@ -77,9 +82,18 @@ class BlackAttack(nn.Module):
         return self.fc4(h3)
 
     def forward(self, x):
+        # Reshape data for net
+        if len(x.shape)==4:
+            batch, chan, h, w = x.shape
+            x = x.view(batch,chan,h*w).squeeze(1)
+
+        # Forward pass
         logvar = self.encode(x.view(-1, self.input_size))
         z = self.reparameterize(logvar)
-        delta = self.decode(z)
+
+        # Shape noise to match original data
+        delta = self.decode(z).unsqueeze(1)
+        delta = delta.view(batch,chan,h,w)
 
         return delta, logvar
 

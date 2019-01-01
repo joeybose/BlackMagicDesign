@@ -119,6 +119,15 @@ def train_black(args, data, target, unk_model, model, cv):
     """
     Main training loop for black box attack
     """
+    # Original target
+    target_int = int(target)
+    print("Original target class is: ", target_int)
+    pred = unk_model(data) # target model prediction
+    pred_prob = F.softmax(pred, dim=1)
+    pred_prob = float(pred_prob[0][target_int])
+    print("Original model prediction for this class is: ", pred_prob)
+
+    print("++++BlackBox Attack start++++")
     estimator = attacks.reinforce
     opt = optim.SGD(model.parameters(), lr=5e-3)
     # TODO: normalize?
@@ -129,15 +138,18 @@ def train_black(args, data, target, unk_model, model, cv):
     # Loop data. For now, just loop same image
     for i in range(30):
         # Get gradients for delta model
-        delta = model(data) # perturbation
+        delta, logvar = model(data) # perturbation
         x_prime = data + delta # attack sample
         pred = unk_model(x_prime) # target model prediction
+        pred_prob = F.softmax(pred, dim=1)
+        pred_prob = float(pred_prob[0][target_int])
+        print("Target model prediction with perturbation: ", pred_prob)
         cont_var = cv(x_prime) # control variate prediction
-        f = loss_func(pred, target) # target loss
-        f_cv = loss_func(cont_var, target) # cont var loss
+        f = attacks.reward(pred, target) # target loss
+        f_cv = attacks.reward(cont_var, target) # cont var loss
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
         # Gradient from gradient estimator
-        policy_loss = estimator(x_prime, f, cont_var)
+        policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
         opt.zero_grad()
         policy_loss.backward()
         opt.step()
@@ -145,8 +157,8 @@ def train_black(args, data, target, unk_model, model, cv):
         if args.comet:
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
             args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
-        if i % 5 == 0:
-            print(i, out[0][0], f.item())
+        # if i % 5 == 0:
+            # print(i, out[0][0], f.item())
         # TODO: constrain delta
         # Optimize control variate arguments
     if args.comet:
