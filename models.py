@@ -165,6 +165,26 @@ def vae_loss_function(recon_x, x, mu, logvar):
     # KL divergence
     return BCE + KLD
 
+class MnistBottleneck(nn.Module):
+    def __init__(self):
+        super(MnistBottleneck, self).__init__()
+        self.fc21 = nn.Linear(400, 20)
+        self.fc22 = nn.Linear(400, 20)
+
+    def forward(self, h):
+        mu, logvar = self.fc21(h), self.fc22(h)
+        z = self.reparametrize(mu, logvar)
+        return z, mu, logvar
+
+    def reparametrize(self, mu, logvar):
+        std = logvar.mul(0.5).exp_()
+        if torch.cuda.is_available():
+            eps = torch.cuda.FloatTensor(std.size()).normal_()
+        else:
+            eps = torch.FloatTensor(std.size()).normal_()
+        eps = Variable(eps)
+        return eps.mul(std).add_(mu)
+
 class MnistVAE(nn.Module):
     def __init__(self):
         super(MnistVAE, self).__init__()
@@ -173,15 +193,15 @@ class MnistVAE(nn.Module):
 	    nn.Linear(784, 400),
             nn.LeakyReLU(0.2),
         )
-        self.fc21 = nn.Linear(400, 20)
-        self.fc22 = nn.Linear(400, 20)
+        self.fc21 = nn.Linear(400, 30)
+        self.fc22 = nn.Linear(400, 30)
 
         self.decoder = nn.Sequential(
-	    nn.Linear(20, 400),
+	    nn.Linear(30, 400),
             nn.LeakyReLU(0.2),
 	    nn.Linear(400, 784),
             nn.LeakyReLU(0.2),
-	    nn.Sigmoid(),
+	    nn.Tanh(),
 	)
 
     def encode(self, x):
@@ -219,3 +239,79 @@ class MnistVAE(nn.Module):
     def load(self, fn_enc, fn_dec):
         self.encoder.load_state_dict(torch.load(fn_enc))
         self.decoder.load_state_dict(torch.load(fn_dec))
+
+class Mnistautoencoder(nn.Module):
+    def __init__(self):
+        super(Mnistautoencoder, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, 3, stride=3, padding=1),  # b, 16, 10, 10
+            nn.LeakyReLU(0.2),
+            nn.MaxPool2d(2, stride=2),  # b, 16, 5, 5
+            nn.Conv2d(16, 8, 3, stride=2, padding=1),  # b, 8, 3, 3
+            nn.LeakyReLU(0.2),
+            nn.MaxPool2d(2, stride=1)  # b, 8, 2, 2
+        )
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(8, 16, 3, stride=2),  # b, 16, 5, 5
+            nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(16, 8, 5, stride=3, padding=1),  # b, 8, 15, 15
+            nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(8, 1, 2, stride=2, padding=1),  # b, 1, 28, 28
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
+
+    def save(self, fn_enc, fn_dec):
+        torch.save(self.encoder.state_dict(), fn_enc)
+        torch.save(self.decoder.state_dict(), fn_dec)
+
+    def load(self, fn_enc, fn_dec):
+        self.encoder.load_state_dict(torch.load(fn_enc))
+        self.decoder.load_state_dict(torch.load(fn_dec))
+
+class Generator(nn.Module):
+    def __init__(self, input_size, latent=50):
+        """
+        A modified VAE. Latent is Gaussian (0, sigma) of dimension latent.
+        Decode latent to a noise vector of `input_size`,
+
+        Note the Gaussian \mu is not learned since input `x` acts as mean
+
+        Args:
+            input_size: size of image, 784 in case of MNIST
+            latent: size of multivar Gaussian params
+        """
+        super(Generator, self).__init__()
+        self.input_size = input_size
+
+        self.fc1 = nn.Linear(input_size, 400)
+        self.fc_sig = nn.Linear(400, latent)
+        self.fc3 = nn.Linear(latent, 400)
+        self.fc4 = nn.Linear(400, input_size)
+
+    def encode(self, x):
+        h1 = F.relu(self.fc1(x))
+        return self.fc_sig(h1)
+
+    def reparameterize(self, logvar):
+        std = torch.exp(0.5*logvar)
+        eps = torch.randn_like(std)
+        return eps.mul(std)
+
+    def decode(self, z):
+        """
+        Final layer should probably not have activation?
+        """
+        h3 = F.relu(self.fc3(z))
+        return self.fc4(h3)
+
+    def forward(self, x):
+        logvar = self.encode(x.view(-1, self.input_size))
+        z = self.reparameterize(logvar)
+        delta = self.decode(z)
+
+        return delta, logvar

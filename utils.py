@@ -64,6 +64,7 @@ def get_data(args):
             100)]
         tensor = tensor_to_cuda(tensor.unsqueeze(0))
         target = tensor_to_cuda(target.unsqueeze(0))
+        args.classes = 10
     else:
         pig_img = Image.open("references/adver_robust/introduction/pig.jpg")
         preprocess = transforms.Compose([
@@ -73,6 +74,7 @@ def get_data(args):
         tensor = tensor_to_cuda(preprocess(pig_img)[None,:,:,:])
         source_class = 341 # pig class
         target = tensor_to_cuda(torch.LongTensor([source_class]))
+        args.classes = 1000
 
     # Get flat input size
     args.input_size = tensor[0][0].flatten().shape[0]

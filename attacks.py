@@ -37,27 +37,47 @@ def whitebox_pgd(args, image, target, model, normalize=None):
         plot_image_to_comet(args,adv_image,"Adv.png")
     return pred, clamp(clean_image - adv_image,0.,1.)
 
-def whitebox_untargeted(args, image, target, model, normalize=None):
+def white_box_untargeted(args, image, target, model, enc=None, dec=None, \
+        vae=None, ae= None, normalize=None):
     epsilon = 0.3
     # Create noise vector
     delta = torch.zeros_like(image,requires_grad=True).to(args.device)
     # Optimize noise vector (only) to fool model
-    tensor = image
+    x = image
+
+    use_vae = True if (vae is not None) else False
+    use_ae = True if (ae is not None) else False
+
     print("Target is %d" %(target))
     for t in range(args.PGD_steps):
         if normalize is not None:
-            pred = model(normalize(tensor + delta))
+            if use_vae:
+                x = x.view(x.size(0), -1).unsqueeze(0)
+                z, mu, logvar = vae(x)
+                z = z.clamp(0, 1)
+                x = z.view(z.size(0), 1, 28, 28)
+            elif use_ae:
+                x = ae(x)
+            pred = model(normalize(x + delta))
         else:
-            pred = model(tensor + delta)
+            if use_vae:
+                x = x.view(x.size(0), -1).unsqueeze(0)
+                z, mu, logvar = vae(x)
+                z = z.clamp(0, 1)
+                x = z.view(z.size(0), 1, 28, 28)
+            elif use_ae:
+                x = ae(x)
+            pred = model(x.detach() + delta)
+            recon_pred = model(x.detach())
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+        recon_out = recon_pred.max(1, keepdim=True)[1] # get the index of the max log-probability
         loss = nn.CrossEntropyLoss(reduction="sum")(pred, target)
-        if out != target:
-            print(t, out[0][0], loss.item())
-            break
+        recon_image = (x)[0].detach()
         if args.comet:
             args.experiment.log_metric("Whitebox CE loss",loss,step=t)
+            plot_image_to_comet(args,recon_image,"recon.png")
         if t % 5 == 0:
-            print(t, out[0][0], loss.item())
+            print(t, out[0][0], recon_out[0][0], loss.item())
 
         loss.backward()
         grad_sign = delta.grad.data.sign()
@@ -65,17 +85,69 @@ def whitebox_untargeted(args, image, target, model, normalize=None):
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
         delta.data.clamp_(-epsilon, epsilon)
-        delta.data = clamp(tensor.data + delta.data,0.,1.) - tensor.data
+        delta.data = clamp(x.data + delta.data,0.,1.) - x.data
         delta.grad.data.zero_()
+        # if out != target:
+            # print(t, out[0][0], loss.item())
+            # break
     if args.comet:
         if not args.mnist:
-            clean_image = (tensor)[0].detach().cpu().numpy().transpose(1,2,0)
-            adv_image = (tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
+            clean_image = (image)[0].detach().cpu().numpy().transpose(1,2,0)
+            adv_image = (x + delta)[0].detach().cpu().numpy().transpose(1,2,0)
             delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
         else:
-            clean_image = (tensor)[0].detach()
-            adv_image = (tensor + delta)[0].detach()
+            clean_image = (image)[0].detach()
+            adv_image = (x + delta)[0].detach()
+            recon_image = (x)[0].detach()
             delta_image = (delta)[0].detach().cpu()
+        plot_image_to_comet(args,clean_image,"clean.png")
+        plot_image_to_comet(args,adv_image,"Adv.png")
+        plot_image_to_comet(args,delta_image,"delta.png")
+        plot_image_to_comet(args,recon_image,"recon.png")
+    return out, delta
+
+def white_box_generator(args, image, target, model, G):
+    epsilon = 0.5
+    # Create noise vector
+    # delta = torch.zeros_like(image,requires_grad=True).to(args.device)
+    # Optimize noise vector (only) to fool model
+    x = image
+    opt = optim.SGD(G.parameters(), lr=1e-2)
+
+    print("Target is %d" %(target))
+    for t in range(args.PGD_steps):
+        delta, _ = G(x)
+        delta = delta.view(delta.size(0), 1, 28, 28)
+        # delta.data.clamp_(-epsilon, epsilon)
+        # delta.data = clamp(x.data + delta.data,0.,1.) - x.data
+        pred = model(x.detach() + delta)
+        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+        loss = -nn.CrossEntropyLoss(reduction="sum")(pred, target)
+        if args.comet:
+            args.experiment.log_metric("Whitebox CE loss",loss,step=t)
+        if t % 5 == 0:
+            print(t, out[0][0], loss.item())
+        opt.zero_grad()
+        loss.backward()
+        for p in G.parameters():
+            p.grad.data.sign_()
+        # Clipping is equivalent to projecting back onto the l_\infty ball
+        # This technique is known as projected gradient descent (PGD)
+        delta.data.clamp_(-epsilon, epsilon)
+        delta.data = clamp(x.data + delta.data,0.,1.) - x.data
+        opt.step()
+        if out != target:
+            print(t, out[0][0], loss.item())
+            break
+    if args.comet:
+        if not args.mnist:
+            clean_image = (image)[0].detach().cpu().numpy().transpose(1,2,0)
+            adv_image = (x + delta)[0].detach().cpu().numpy().transpose(1,2,0)
+            delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        else:
+            clean_image = (image)[0].detach()
+            adv_image = (x + delta)[0].detach()
+            delta_image = (delta)[0].detach()
         plot_image_to_comet(args,clean_image,"clean.png")
         plot_image_to_comet(args,adv_image,"Adv.png")
         plot_image_to_comet(args,delta_image,"delta.png")
