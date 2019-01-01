@@ -115,14 +115,16 @@ def train_mnist_ae(args):
         decoder = model.module.decoder
     return encoder, decoder, model
 
-def train_black(args, data, unk_model, model, cv):
+def train_black(args, data, target, unk_model, model, cv):
     """
     Main training loop for black box attack
     """
-    estimator = reinforce
+    estimator = attacks.reinforce
     opt = optim.SGD(model.parameters(), lr=5e-3)
-    data = normalize(data) # pig for testing
-    target = 341 # pig class for testing
+    # TODO: normalize?
+    # normalize = utils.Normalize()
+    # data = normalize(data)
+    # target = 341 # pig class for testing
     epsilon = 2./255
     # Loop data. For now, just loop same image
     for i in range(30):
@@ -195,10 +197,10 @@ def main(args):
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
 
     # Control Variate
-    cv = to_cuda(models.FC(args.input_size, classes))
+    cv = to_cuda(models.FC(args.input_size, args.classes))
 
     # Launch training
-    train_black(args, data, unk_model, model, cv)
+    train_black(args, data, target, unk_model, model, cv)
 
 
 if __name__ == '__main__':
@@ -206,26 +208,22 @@ if __name__ == '__main__':
     Process command-line arguments, then call main()
     """
     parser = argparse.ArgumentParser(description='BlackBox')
+    # Hparams
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                        help='number of epochs to train (default: 10)')
     parser.add_argument('--latent_dim', type=int, default=20, metavar='N',
                         help='Latent dim for VAE')
-    parser.add_argument('--PGD_steps', type=int, default=100, metavar='N',
-                        help='max gradient steps (default: 30)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='disables CUDA training')
-    parser.add_argument("--comet", action="store_true", default=False,
-            help='Use comet for logging')
-    parser.add_argument("--comet_username", type=str, default="joeybose",
-            help='Username for comet logging')
-    parser.add_argument("--comet_apikey", type=str,\
-            default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
+    parser.add_argument('--latent_size', type=int, default=100, metavar='N',
+                        help='Size of latent distribution (default: 100)')
+    # Training
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+                        help='number of epochs to train (default: 10)')
+    parser.add_argument('--PGD_steps', type=int, default=100, metavar='N',
+                        help='max gradient steps (default: 30)')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--test', default=False, action='store_true',
@@ -238,6 +236,15 @@ if __name__ == '__main__':
                         help='Use MNIST as Dataset')
     parser.add_argument('--white', default=False, action='store_true',
                         help='White Box test')
+    # Bells
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                        help='disables CUDA training')
+    parser.add_argument("--comet", action="store_true", default=False,
+            help='Use comet for logging')
+    parser.add_argument("--comet_username", type=str, default="joeybose",
+            help='Username for comet logging')
+    parser.add_argument("--comet_apikey", type=str,\
+            default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Debug')
     parser.add_argument('--model_path', type=str, default="mnist_cnn.pt",
