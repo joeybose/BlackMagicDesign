@@ -21,8 +21,11 @@ import ipdb
 
 def train_mnist_vae(args):
     model = to_cuda(MnistVAE())
-    if os.path.exists("mnist_enc.pt") and os.path.exists("mnist_dec.pt"):
-        model.module.load("mnist_enc.pt","mnist_dec.pt")
+    cond = True if (os.path.exists("mnist_enc.pt") and os.path.exists("mnist_dec.pt") \
+            and os.path.exists("mnist_vae.pt")) else False
+    if cond:
+        model.load_state_dict(torch.load("mnist_vae.pt"))
+        # model.module.load("mnist_enc.pt","mnist_dec.pt")
         encoder = model.module.encoder
         decoder = model.module.decoder
     else:
@@ -60,8 +63,54 @@ def train_mnist_vae(args):
                 if args.comet:
                     args.experiment.log_image('results/image_{}.png'.format(epoch),overwrite=False)
         model.module.save("mnist_enc.pt","mnist_dec.pt")
+        torch.save(model.state_dict(),"mnist_vae.pt")
+        encoder = model.module.encoder
+        decoder = model.module.decoder
 
-    return encoder, decoder
+    return encoder, decoder, model
+
+def train_mnist_ae(args):
+    model = to_cuda(Mnistautoencoder())
+    cond = True if (os.path.exists("mnist_aenc.pt") and os.path.exists("mnist_adec.pt") \
+            and os.path.exists("mnist_ae.pt")) else False
+    if cond:
+        model.load_state_dict(torch.load("mnist_ae.pt"))
+        # model.module.load("mnist_enc.pt","mnist_dec.pt")
+        encoder = model.module.encoder
+        decoder = model.module.decoder
+    else:
+        trainloader, testloader = load_mnist()
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3,\
+                weight_decay=1e-5)
+        num_epochs = 50
+        for epoch in range(num_epochs):
+            for data in trainloader:
+                img, _ = data
+                img = Variable(img).cuda()
+                # ===================forward=====================
+                output = model(img)
+                loss = criterion(output, img)
+                # ===================backward====================
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+	    # ===================log========================
+            print('epoch [{}/{}], loss:{:.4f}'
+                  .format(epoch+1, num_epochs, loss.data[0]))
+            if epoch % 10 == 0:
+                pic = to_img(output.cpu().data)
+                save_image(pic, './results/ae_image_{}.png'.format(epoch))
+                if args.comet:
+                    args.experiment.log_image('results/ae_image_{}.png'.format(epoch),overwrite=False)
+
+            if args.comet:
+                args.experiment.log_metric("MNIST AE loss",loss,step=epoch)
+        model.module.save("mnist_aenc.pt","mnist_adec.pt")
+        torch.save(model.state_dict(),"mnist_ae.pt")
+        encoder = model.module.encoder
+        decoder = model.module.decoder
+    return encoder, decoder, model
 
 def train_black(args, data, unk_model, model, cv):
     """
@@ -123,12 +172,21 @@ def main(args):
         ipdb.set_trace()
 
     if args.train_vae:
-        encoder,decoder = train_mnist_vae(args)
+        encoder, decoder, vae = train_mnist_vae(args)
+    else:
+        encoder, decoder, vae = None, None, None
 
+    if args.train_ae:
+        encoder, decoder, ae = train_mnist_ae(args)
+    else:
+        encoder, decoder, ae = None, None, None
     # Test white box
     if args.white:
-        pred, delta = white_box_untargeted(args, data, target, unk_model, normalize)
-        pred, delta = whitebox_pgd(args, data, target, unk_model, normalize)
+        # pred, delta = white_box_untargeted(args, data, target, unk_model,\
+                # encoder, decoder, vae, ae, normalize)
+        # pred, delta = whitebox_pgd(args, data, target, unk_model, normalize)
+        G = Generator(input_size=784).to(args.device)
+        pred, delta = white_box_generator(args, data, target, unk_model, G)
 
     # Attack model
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
@@ -149,6 +207,8 @@ if __name__ == '__main__':
                         help='input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
+    parser.add_argument('--latent_dim', type=int, default=20, metavar='N',
+                        help='Latent dim for VAE')
     parser.add_argument('--PGD_steps', type=int, default=100, metavar='N',
                         help='max gradient steps (default: 30)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -169,6 +229,8 @@ if __name__ == '__main__':
                         help='just test model and print accuracy')
     parser.add_argument('--train_vae', default=False, action='store_true',
                         help='Train VAE')
+    parser.add_argument('--train_ae', default=False, action='store_true',
+                        help='Train AE')
     parser.add_argument('--mnist', default=False, action='store_true',
                         help='Use MNIST as Dataset')
     parser.add_argument('--white', default=False, action='store_true',
