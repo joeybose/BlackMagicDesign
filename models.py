@@ -2,6 +2,7 @@ import torch
 from torch import nn, optim
 import torch.nn.functional as F
 from torch.autograd import Variable
+from torch.distributions.multivariate_normal import MultivariateNormal
 import ipdb
 
 class FC(nn.Module):
@@ -299,8 +300,11 @@ class Generator(nn.Module):
 
     def reparameterize(self, logvar):
         std = torch.exp(0.5*logvar)
+        ipdb.set_trace()
         eps = torch.randn_like(std)
-        return eps.mul(std)
+        sample = eps.mul(std)
+        covar_mat = torch.diag(sample[0])
+        return sample
 
     def decode(self, z):
         """

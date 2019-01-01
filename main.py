@@ -188,8 +188,8 @@ def main(args):
         # pred, delta = white_box_untargeted(args, data, target, unk_model,\
                 # encoder, decoder, vae, ae, normalize)
         # pred, delta = whitebox_pgd(args, data, target, unk_model, normalize)
-        G = Generator(input_size=784).to(args.device)
-        pred, delta = white_box_generator(args, data, target, unk_model, G)
+        G = models.Generator(input_size=784).to(args.device)
+        pred, delta = attacks.white_box_generator(args, data, target, unk_model, G)
 
     # Attack model
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
@@ -253,7 +253,9 @@ if __name__ == '__main__':
     if not os.path.isfile("settings.json"):
         with open('settings.json') as f:
             data = json.load(f)
-        args.comet_apikey = data["comet"]["api_key"]
+        ipdb.set_trace()
+        args.comet_apikey = data["api_key"]
+        args.comet_username = data["username"]
 
         # No set_trace ;)
         if data["ipdb"] == "False":

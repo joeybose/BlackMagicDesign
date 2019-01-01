@@ -122,7 +122,7 @@ def white_box_generator(args, image, target, model, G):
         # delta.data = clamp(x.data + delta.data,0.,1.) - x.data
         pred = model(x.detach() + delta)
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-        loss = -nn.CrossEntropyLoss(reduction="sum")(pred, target)
+        loss = -nn.CrossEntropyLoss(reduction="sum")(pred.detach(), target)
         if args.comet:
             args.experiment.log_metric("Whitebox CE loss",loss,step=t)
         if t % 5 == 0:
