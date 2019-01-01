@@ -3,3 +3,6 @@ tags
 notes.md
 data/
 __pycache__/
+*.pt
+settings.json
+

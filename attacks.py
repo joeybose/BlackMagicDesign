@@ -30,9 +30,9 @@ def whitebox_pgd(args, image, target, model, normalize=None):
     pred = model(adv_image)
     out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
     print("Adv Target is %d" %(out))
+    clean_image = (image)[0].detach()
+    adv_image = adv_image[0].detach()
     if args.comet:
-        clean_image = (image)[0].detach()
-        adv_image = adv_image[0].detach()
         plot_image_to_comet(args,clean_image,"clean.png")
         plot_image_to_comet(args,adv_image,"Adv.png")
     return pred, clamp(clean_image - adv_image,0.,1.)

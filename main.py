@@ -1,10 +1,12 @@
+import json, os
+import argparse
+import ipdb
+from PIL import Image
 from comet_ml import Experiment
 import matplotlib.pyplot as plt
-from PIL import Image
-from torchvision import transforms
 import torch
-from models import *
 from torch import nn, optim
+from torchvision import transforms
 from torchvision.models import resnet50
 from torchvision.models.vgg import VGG
 import torchvision.models.densenet as densenet
@@ -13,11 +15,8 @@ from torchvision.utils import save_image
 import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
-import json
-import argparse
-from utils import *
-from attacks import *
-import ipdb
+import utils, models, attacks
+from utils import to_cuda
 
 def train_mnist_vae(args):
     model = to_cuda(MnistVAE())
@@ -47,21 +46,25 @@ def train_mnist_vae(args):
                 train_loss += loss.data[0]
                 optimizer.step()
                 if batch_idx % 100 == 0:
-                    print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'\
+                        .format(
                         epoch,
                         batch_idx * len(img),
-                        len(trainloader.dataset), 100. * batch_idx / len(trainloader),
+                        len(trainloader.dataset),
+                        100. * batch_idx / len(trainloader),
                         loss.data[0] / len(img)))
 
             print('====> Epoch: {} Average loss: {:.4f}'.format(
                 epoch, train_loss / len(trainloader.dataset)))
             if args.comet:
-                args.experiment.log_metric("MNIST VAE loss",train_loss,step=epoch)
+                args.experiment.log_metric(\
+                        "MNIST VAE loss",train_loss,step=epoch)
             if epoch % 10 == 0:
                 save = to_img(recon_batch.cpu().data)
                 save_image(save, 'results/image_{}.png'.format(epoch))
                 if args.comet:
-                    args.experiment.log_image('results/image_{}.png'.format(epoch),overwrite=False)
+                    args.experiment.log_image(\
+                        'results/image_{}.png'.format(epoch),overwrite=False)
         model.module.save("mnist_enc.pt","mnist_dec.pt")
         torch.save(model.state_dict(),"mnist_vae.pt")
         encoder = model.module.encoder
@@ -130,7 +133,7 @@ def train_black(args, data, unk_model, model, cv):
         cont_var = cv(x_prime) # control variate prediction
         f = loss_func(pred, target) # target loss
         f_cv = loss_func(cont_var, target) # cont var loss
-        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+        out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
         # Gradient from gradient estimator
         policy_loss = estimator(x_prime, f, cont_var)
         opt.zero_grad()
@@ -146,7 +149,7 @@ def train_black(args, data, unk_model, model, cv):
         # Optimize control variate arguments
     if args.comet:
         clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
-        adv_image = (pig_tensor + delta)[0].detach().cpu().numpy().transpose(1,2,0)
+        adv_image=(pig_tensor+delta)[0].detach().cpu().numpy().transpose(1,2,0)
         delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
         plot_image_to_comet(args,clean_image,"BB_pig.png")
         plot_image_to_comet(args,adv_image,"BB_Adv_pig.png")
@@ -159,13 +162,13 @@ def main(args):
         normalize = None
     else:
         # Normalize image for ImageNet
-        normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        normalize=Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
 
     # Load data
-    data,target = get_data(args)
+    data,target = utils.get_data(args)
 
     # The unknown model to attack
-    unk_model = load_unk_model(args)
+    unk_model = utils.load_unk_model(args)
 
     # Try Whitebox Untargeted first
     if args.debug:
@@ -240,11 +243,21 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default="mnist_cnn.pt",
                         help='where to save/load')
     parser.add_argument('--namestr', type=str, default='BMD', \
-            help='additional info in output filename to help identify experiments')
+            help='additional info in output filename to describe experiments')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)
+
+    # Check if settings file
+    if not os.path.isfile("settings.json"):
+        with open('settings.json') as f:
+            data = json.load(f)
+        args.comet_apikey = data["comet"]["api_key"]
+
+        # No set_trace ;)
+        if data["ipdb"] == "False":
+            ipdb.set_trace = lambda: None
 
     args.device = torch.device("cuda" if use_cuda else "cpu")
     if args.comet:
