@@ -23,7 +23,9 @@ class Normalize(nn.Module):
         self.mean = torch.Tensor(mean)
         self.std = torch.Tensor(std)
     def forward(self, x):
-        return (x - self.mean.type_as(x)[None,:,None,None]) / self.std.type_as(x)[None,:,None,None]
+        num = (x - self.mean.type_as(x)[None,:,None,None])
+        denom = self.std.type_as(x)[None,:,None,None]
+        return num / denom
 
 def to_cuda(model):
     cuda_stat = torch.cuda.is_available()
@@ -123,15 +125,18 @@ def test_mnist(args, model, device, test_loader):
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
-            test_loss += F.nll_loss(output, target, reduction='sum').item() # sum up batch loss
-            pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+            # sum up batch loss
+            test_loss += F.nll_loss(output, target, reduction='sum').item()
+            # get the index of the max log-probability
+            pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
+            .format(
+                test_loss, correct, len(test_loader.dataset),
+                100. * correct / len(test_loader.dataset)))
 
 def load_cifar():
     """
@@ -150,11 +155,15 @@ def load_cifar():
 	# transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset,batch_size=1024,shuffle=True, num_workers=8)
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                    download=True, transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset,batch_size=1024,
+                                                shuffle=True, num_workers=8)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset,batch_size=128,shuffle=False, num_workers=8)
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                      download=True, transform=transform_test)
+    testloader = torch.utils.data.DataLoader(testset,batch_size=128,
+                                                 shuffle=False, num_workers=8)
     return trainloader, testloader
 
 def load_mnist(normalize=True):

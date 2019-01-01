@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
 import utils, models, attacks
+from utils import to_cuda
 
 def train_mnist_vae(args):
     model = to_cuda(MnistVAE())
