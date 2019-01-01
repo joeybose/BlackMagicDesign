@@ -15,7 +15,7 @@ from torch import optim
 from torch.autograd import Variable
 import json
 import argparse
-from utils import *
+import utils
 from attacks import *
 import ipdb
 
@@ -182,6 +182,16 @@ if __name__ == '__main__':
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)
+
+    # Check if settings file
+    if not os.path.isfile("settings.json"):
+        with open('settings.json') as f:
+            data = json.load(f)
+        args.comet_apikey = data["comet"]["api_key"]
+
+        # No set_trace ;)
+        if data["ipdb"] == "False":
+            ipdb.set_trace = lambda: None
 
     args.device = torch.device("cuda" if use_cuda else "cpu")
     if args.comet:
