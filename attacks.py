@@ -163,12 +163,17 @@ def soft_reward(pred, targ):
         pred: model log prediction vector, to be normalized below
         targ: true class integer, we want to decrease probability of this class
     """
-    pred = F.softmax(pred, dim=1)
+    pred = torch.exp(pred)
+    # pred = F.softmax(pred, dim=1)
     gather = pred[:,targ] # gather target predictions
     ones = torch.ones_like(gather)
     r = ones - gather
     # r = gather.mean() # old line of code
     r = r.mean()
+    # Modified CW loss
+    # pred[:,targ] = pred[:,targ]-gather
+    # other = (pred).max(1)[0]
+    # r = torch.clamp(other - gather, min=0.)
 
     return r
 

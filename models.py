@@ -314,7 +314,6 @@ class Generator(nn.Module):
 
     def reparameterize(self, logvar):
         std = torch.exp(0.5*logvar)
-        ipdb.set_trace()
         eps = torch.randn_like(std)
         sample = eps.mul(std)
         covar_mat = torch.diag(sample[0])

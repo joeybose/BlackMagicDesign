@@ -12,6 +12,7 @@ from torchvision.models.vgg import VGG
 import torchvision.models.densenet as densenet
 import torchvision.models.alexnet as alexnet
 from torchvision.utils import save_image
+from advertorch.utils import clamp
 import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
@@ -115,7 +116,7 @@ def train_mnist_ae(args):
         decoder = model.module.decoder
     return encoder, decoder, model
 
-def train_black(args, data, target, unk_model, model, cv):
+def train_black(args, data, target, unk_model, G, cv):
     """
     Main training loop for black box attack
     """
@@ -130,16 +131,22 @@ def train_black(args, data, target, unk_model, model, cv):
 
     # Original target
     target_int = int(target)
+    x = data
     print("Original target class is: ", target_int)
-    pred = unk_model(data) # target model prediction
-    pred_prob = F.softmax(pred, dim=1)
+    pred = unk_model(x) # target model prediction
+    pred_prob = torch.exp(pred) #F.softmax(pred, dim=1)
     pred_prob = float(pred_prob[0][target_int])
-    print("Original model prediction for this class is: ", pred_prob)
-    epsilon = 2./255
+    print("Original model probability for this class is: ", pred_prob)
+    out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
+    print("Current model prediction for this class is: ",\
+            out[0][0].cpu().numpy())
+    if out!= target:
+        print("Breaking because wrong classification to begin with")
+    epsilon = args.epsilon
     print("Epsilon: ", epsilon)
 
     print("++++BlackBox Attack start++++")
-    opt = optim.SGD(model.parameters(), lr=5e-3)
+    opt = optim.SGD(G.parameters(), lr=1e-2)
     # TODO: normalize?
     # normalize = utils.Normalize()
     # data = normalize(data)
@@ -147,18 +154,20 @@ def train_black(args, data, target, unk_model, model, cv):
     for i in range(args.bb_steps):
         # Get prediction
         # Get gradients for delta model
-        delta, logvar = model(data) # perturbation
+        delta, logvar = G(x) # perturbation
         # delta = F.tanh(delta)*epsilon
         # TODO: Best way to deal with delta?
         norm_pre = torch.norm(delta, float('inf'))
         delta.data.clamp_(-epsilon, epsilon)
-        x_prime = data + delta # attack sample
+        delta.data = clamp(x.data + delta.data,0.,1.) - x.data
+        x_prime = x + delta # attack sample
         pred = unk_model(x_prime).detach() # target model prediction
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
 
         # Break if attack successful
         if not bool(out.squeeze(1) == target):
-            delta, logvar = model(data) # debug nan
+            # epsilon = epsilon / 2
+            delta, logvar = G(x) # debug nan
             break
 
         # Monitor training
@@ -172,17 +181,22 @@ def train_black(args, data, target, unk_model, model, cv):
         loss = policy_loss + KLD
         opt.zero_grad()
         loss.backward()
+        for p in G.parameters():
+            p.grad.data.sign_()
+        # delta.data.clamp_(-epsilon, epsilon)
+        # delta.data = clamp(x.data + delta.data,0.,1.) - x.data
         opt.step()
         if args.comet:
-            args.experiment.log_metric("Blackbox CE loss",f,step=i)
+            args.experiment.log_metric("Blackbox Reward",f,step=i)
             args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
 
         def print_info():
             norm = torch.norm(delta, float('inf'))
-            pred_prob = F.softmax(pred, dim=1)
+            # pred_prob = F.softmax(pred, dim=1)
+            pred_prob = torch.exp(pred)
             pred_prob = float(pred_prob[0][target_int])
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp: {:1.4f} | delta norm post-clamp: {:1.4f}"\
-                    .format(i, pred_prob, norm_pre, norm))
+            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
+                            .format(i, pred_prob, norm_pre, norm, out[0][0]))
         if i % 10 == 0:
             print_info()
         # Optimize control variate arguments
@@ -190,12 +204,12 @@ def train_black(args, data, target, unk_model, model, cv):
     print_info()
 
     if args.comet:
-        clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
-        adv_image=(pig_tensor+delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        plot_image_to_comet(args,clean_image,"BB_pig.png")
-        plot_image_to_comet(args,adv_image,"BB_Adv_pig.png")
-        plot_image_to_comet(args,delta_image,"BB_delta_pig.png")
+        clean_image = (x)[0].detach().cpu()
+        adv_image=(x_prime)[0].detach().cpu()
+        delta_image = (delta)[0].detach().cpu()
+        utils.plot_image_to_comet(args,clean_image,"BB_clean.png")
+        utils.plot_image_to_comet(args,adv_image,"BB_Adv.png")
+        utils.plot_image_to_comet(args,delta_image,"BB_delta.png")
 
 def main(args):
     if args.mnist:
@@ -257,6 +271,8 @@ if __name__ == '__main__':
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
+    parser.add_argument('--epsilon', type=float, default=0.1, metavar='M',
+                        help='Epsilon for Delta (default: 0.1)')
     parser.add_argument('--latent_size', type=int, default=100, metavar='N',
                         help='Size of latent distribution (default: 100)')
     parser.add_argument('--estimator', default='reinforce', const='reinforce',
@@ -308,7 +324,6 @@ if __name__ == '__main__':
     if not os.path.isfile("settings.json"):
         with open('settings.json') as f:
             data = json.load(f)
-        ipdb.set_trace()
         args.comet_apikey = data["api_key"]
         args.comet_username = data["username"]
 
