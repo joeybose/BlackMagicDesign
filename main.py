@@ -17,6 +17,7 @@ from torch import optim
 from torch.autograd import Variable
 import utils, models, attacks
 from utils import to_cuda
+from torch.nn.utils import clip_grad_norm_
 
 def train_mnist_vae(args):
     model = to_cuda(MnistVAE())
@@ -172,6 +173,8 @@ def train_black(args, data, target, unk_model, model, cv):
         loss = policy_loss + KLD
         opt.zero_grad()
         loss.backward()
+        if args.clip_grad:
+            clip_grad_norm_(model.parameters(), 10)
         opt.step()
         if args.comet:
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
@@ -276,6 +279,8 @@ if __name__ == '__main__':
                         help='random seed (default: 1)')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
+    parser.add_argument('--clip_grad', default=True, action='store_true',
+                        help='Clip grad norm')
     parser.add_argument('--train_vae', default=False, action='store_true',
                         help='Train VAE')
     parser.add_argument('--train_ae', default=False, action='store_true',

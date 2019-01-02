@@ -219,5 +219,6 @@ def relax_black(log_prob, f, f_cv):
     """
     ac = f - f_cv
     g_cont_var = 0 # grad from control variate
-    policy_loss = (-log_prob) * ac + f_cv
+    policy_loss = (-log_prob) * ac - f_cv
+    cv_loss = policy_loss
     return policy_loss
