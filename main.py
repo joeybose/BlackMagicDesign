@@ -153,7 +153,7 @@ def train_black(args, data, target, unk_model, model, cv):
     for i in range(args.bb_steps):
         # Get prediction
         # Get gradients for delta model
-        delta, logvar, log_prob_a = model(data) # perturbation
+        delta, mu, logvar, log_prob_a = model(data) # perturbation
         # delta = F.tanh(delta)*epsilon
         # TODO: Best way to deal with delta?
         norm_pre = torch.norm(delta, float('inf'))
@@ -163,10 +163,20 @@ def train_black(args, data, target, unk_model, model, cv):
         pred = unk_model(x_prime).detach() # target model prediction
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
 
+        # Print some info
+        def print_info():
+            norm = torch.norm(delta, float('inf'))
+            pred_prob = torch.exp(pred)
+            pred_prob = float(pred_prob[0][target_int])
+            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
+                    .format(i, pred_prob, norm_pre, norm, out[0][0]))
+            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp: {:1.4f} | delta norm post-clamp: {:1.4f}"\
+                    .format(i, pred_prob, norm_pre, norm))
+
         # Break if attack successful
         if not bool(out.squeeze(1) == target):
+            print("Attack successful after {} steps".format(i))
             print_info()
-            # delta, logvar, log_prob_a = model(data) # debug nan
             break
 
         # Monitor training
@@ -176,8 +186,8 @@ def train_black(args, data, target, unk_model, model, cv):
         # Gradient from gradient estimator
         # policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
         policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
-        # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        KLD = -0.5 * torch.sum(1 + logvar - logvar.exp())
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        # KLD = -0.5 * torch.sum(1 + logvar - logvar.exp())
         loss = policy_loss + KLD
         opt.zero_grad()
         loss.backward()
@@ -188,19 +198,11 @@ def train_black(args, data, target, unk_model, model, cv):
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
             args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
 
-        def print_info():
-            norm = torch.norm(delta, float('inf'))
-            pred_prob = torch.exp(pred)
-            pred_prob = float(pred_prob[0][target_int])
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
-                    .format(i, pred_prob, norm_pre, norm, out[0][0]))
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp: {:1.4f} | delta norm post-clamp: {:1.4f}"\
-                    .format(i, pred_prob, norm_pre, norm))
-        if i % 10 == 0:
+        if i % 100 == 0:
             print_info()
         # Optimize control variate arguments
-    print("Attack successful after {} steps".format(i))
-    print_info()
+    if i == args.bb_steps - 1:
+        print("Attack failed within max steps of {}".format(args.bb_steps))
     if args.comet:
         clean_image = (data)[0].detach().cpu()
         adv_image=(x_prime)[0].detach().cpu()
@@ -246,7 +248,8 @@ def main(args):
         pred, delta = attacks.white_box_generator(args, data, target, unk_model, G)
 
     # Attack model
-    model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
+    model = to_cuda(models.GaussianPolicy(args.input_size, 400, args.latent_size))
+    # model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
 
     # Control Variate
     cv = to_cuda(models.FC(args.input_size, args.classes))
@@ -270,7 +273,7 @@ if __name__ == '__main__':
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--latent_size', type=int, default=50, metavar='N',
-                        help='Size of latent distribution (default: 100)')
+                        help='Size of latent distribution (default: 50)')
     parser.add_argument('--estimator', default='reinforce', const='reinforce',
                     nargs='?', choices=['reinforce', 'lax'],
                     help='Grad estimator for noise (default: %(default)s)')
