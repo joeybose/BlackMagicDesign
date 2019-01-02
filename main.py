@@ -150,6 +150,7 @@ def train_black(args, data, target, unk_model, model, cv):
         delta, logvar = model(data) # perturbation
         # delta = F.tanh(delta)*epsilon
         # TODO: Best way to deal with delta?
+        norm_pre = torch.norm(delta, float('inf'))
         delta.data.clamp_(-epsilon, epsilon)
         x_prime = data + delta # attack sample
         pred = unk_model(x_prime).detach() # target model prediction
@@ -157,6 +158,7 @@ def train_black(args, data, target, unk_model, model, cv):
 
         # Break if attack successful
         if not bool(out.squeeze(1) == target):
+            delta, logvar = model(data) # debug nan
             break
 
         # Monitor training
@@ -165,8 +167,11 @@ def train_black(args, data, target, unk_model, model, cv):
         f_cv = reward(cont_var, target) # cont var loss
         # Gradient from gradient estimator
         policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
+        # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        KLD = -0.5 * torch.sum(1 + logvar - logvar.exp())
+        loss = policy_loss + KLD
         opt.zero_grad()
-        policy_loss.backward()
+        loss.backward()
         opt.step()
         if args.comet:
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
@@ -176,8 +181,8 @@ def train_black(args, data, target, unk_model, model, cv):
             norm = torch.norm(delta, float('inf'))
             pred_prob = F.softmax(pred, dim=1)
             pred_prob = float(pred_prob[0][target_int])
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm: {:1.4f}"\
-                    .format(i, pred_prob, norm))
+            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp: {:1.4f} | delta norm post-clamp: {:1.4f}"\
+                    .format(i, pred_prob, norm_pre, norm))
         if i % 10 == 0:
             print_info()
         # Optimize control variate arguments
