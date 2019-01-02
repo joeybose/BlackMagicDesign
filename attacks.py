@@ -153,20 +153,33 @@ def white_box_generator(args, image, target, model, G):
         plot_image_to_comet(args,delta_image,"delta.png")
     return out, delta
 
-def reward(pred, targ):
+def soft_reward(pred, targ):
     """
-    BlackBox reward, 1 - prediction for target class
-        pred: model prediction
-        targ: true class, we want to decrease probability of this class
+    BlackBox adversarial soft reward. Highest reward when `pred` for `targ`
+    class is low. Use this reward to reinforce action gradients.
+
+    Computed as: 1 - (targ pred).
+    Args:
+        pred: model log prediction vector, to be normalized below
+        targ: true class integer, we want to decrease probability of this class
     """
     pred = F.softmax(pred, dim=1)
     gather = pred[:,targ] # gather target predictions
     ones = torch.ones_like(gather)
     r = ones - gather
-    r = gather.mean()
+    # r = gather.mean() # old line of code
+    r = r.mean()
 
     return r
 
+def hard_reward(pred, targ):
+    """
+    BlackBox adversarial 0/1 reward.
+    1 if predict something other than target, 0 if predict target. This reward
+    should make it much harder to optimize a black box attacker.
+    """
+    pred = F.softmax(pred, dim=1)
+    out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
 
 def loss_func(pred, targ):
     """
