@@ -132,14 +132,20 @@ def train_black(args, data, target, unk_model, model, cv):
     target_int = int(target)
     print("Original target class is: ", target_int)
     pred = unk_model(data) # target model prediction
-    pred_prob = F.softmax(pred, dim=1)
+    # pred_prob = F.softmax(pred, dim=1)
+    pred_prob = torch.exp(pred)
     pred_prob = float(pred_prob[0][target_int])
     print("Original model prediction for this class is: ", pred_prob)
-    epsilon = 2./255
+    out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
+    print("Current model prediction for this class is: ",\
+            out[0][0].cpu().numpy())
+    if out!= target:
+        print("Breaking because wrong classification to begin with")
+    epsilon = args.epsilon
     print("Epsilon: ", epsilon)
 
     print("++++BlackBox Attack start++++")
-    opt = optim.SGD(model.parameters(), lr=5e-3)
+    opt = optim.SGD(model.parameters(), lr=1e-2)
     # TODO: normalize?
     # normalize = utils.Normalize()
     # data = normalize(data)
@@ -147,18 +153,20 @@ def train_black(args, data, target, unk_model, model, cv):
     for i in range(args.bb_steps):
         # Get prediction
         # Get gradients for delta model
-        delta, logvar = model(data) # perturbation
+        delta, logvar, log_prob_a = model(data) # perturbation
         # delta = F.tanh(delta)*epsilon
         # TODO: Best way to deal with delta?
         norm_pre = torch.norm(delta, float('inf'))
         delta.data.clamp_(-epsilon, epsilon)
+        delta.data = torch.clamp(data.data + delta.data,0.,1.) - data.data
         x_prime = data + delta # attack sample
         pred = unk_model(x_prime).detach() # target model prediction
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
 
         # Break if attack successful
         if not bool(out.squeeze(1) == target):
-            delta, logvar = model(data) # debug nan
+            print_info()
+            # delta, logvar, log_prob_a = model(data) # debug nan
             break
 
         # Monitor training
@@ -166,12 +174,15 @@ def train_black(args, data, target, unk_model, model, cv):
         f = reward(pred, target) # target loss
         f_cv = reward(cont_var, target) # cont var loss
         # Gradient from gradient estimator
-        policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
+        # policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
+        policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
         # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         KLD = -0.5 * torch.sum(1 + logvar - logvar.exp())
         loss = policy_loss + KLD
         opt.zero_grad()
         loss.backward()
+        for p in model.parameters():
+            p.grad.data.sign_()
         opt.step()
         if args.comet:
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
@@ -179,8 +190,10 @@ def train_black(args, data, target, unk_model, model, cv):
 
         def print_info():
             norm = torch.norm(delta, float('inf'))
-            pred_prob = F.softmax(pred, dim=1)
+            pred_prob = torch.exp(pred)
             pred_prob = float(pred_prob[0][target_int])
+            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
+                    .format(i, pred_prob, norm_pre, norm, out[0][0]))
             print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp: {:1.4f} | delta norm post-clamp: {:1.4f}"\
                     .format(i, pred_prob, norm_pre, norm))
         if i % 10 == 0:
@@ -188,14 +201,13 @@ def train_black(args, data, target, unk_model, model, cv):
         # Optimize control variate arguments
     print("Attack successful after {} steps".format(i))
     print_info()
-
     if args.comet:
-        clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
-        adv_image=(pig_tensor+delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        plot_image_to_comet(args,clean_image,"BB_pig.png")
-        plot_image_to_comet(args,adv_image,"BB_Adv_pig.png")
-        plot_image_to_comet(args,delta_image,"BB_delta_pig.png")
+        clean_image = (data)[0].detach().cpu()
+        adv_image=(x_prime)[0].detach().cpu()
+        delta_image = (delta)[0].detach().cpu()
+        utils.plot_image_to_comet(args,clean_image,"BB_clean.png")
+        utils.plot_image_to_comet(args,adv_image,"BB_Adv.png")
+        utils.plot_image_to_comet(args,delta_image,"BB_delta.png")
 
 def main(args):
     if args.mnist:
@@ -204,7 +216,7 @@ def main(args):
         normalize = None
     else:
         # Normalize image for ImageNet
-        normalize=Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
+        normalize=utils.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
 
     # Load data
     data,target = utils.get_data(args)
@@ -257,7 +269,7 @@ if __name__ == '__main__':
                         help='learning rate (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--latent_size', type=int, default=100, metavar='N',
+    parser.add_argument('--latent_size', type=int, default=50, metavar='N',
                         help='Size of latent distribution (default: 100)')
     parser.add_argument('--estimator', default='reinforce', const='reinforce',
                     nargs='?', choices=['reinforce', 'lax'],
@@ -270,6 +282,8 @@ if __name__ == '__main__':
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--PGD_steps', type=int, default=100, metavar='N',
                         help='max gradient steps (default: 30)')
+    parser.add_argument('--epsilon', type=float, default=0.5, metavar='M',
+			help='Epsilon for Delta (default: 0.1)')
     parser.add_argument('--bb_steps', type=int, default=1000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
