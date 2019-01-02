@@ -145,14 +145,19 @@ def train_black(args, data, target, unk_model, model, cv):
     # data = normalize(data)
     # target = 341 # pig class for testing
     # Loop data. For now, just loop same image
-    for i in range(30):
+    for i in range(100):
         # Get gradients for delta model
         delta, logvar = model(data) # perturbation
+        # TODO: Best way to deal with delta?
+        delta.data.clamp_(-epsilon, epsilon)
         x_prime = data + delta # attack sample
         pred = unk_model(x_prime).detach() # target model prediction
         pred_prob = F.softmax(pred, dim=1)
         pred_prob = float(pred_prob[0][target_int])
-        print("Target model prediction with perturbation: ", pred_prob)
+        # Monitor training
+        norm = torch.norm(delta, float('inf'))
+        print("Target pred: {:1.4f} | delta norm: {:1.4f}".format(\
+                                                            pred_prob, norm))
         cont_var = cv(x_prime).detach() # control variate prediction
         f = reward(pred, target) # target loss
         f_cv = reward(cont_var, target) # cont var loss
@@ -162,14 +167,10 @@ def train_black(args, data, target, unk_model, model, cv):
         opt.zero_grad()
         policy_loss.backward()
         opt.step()
-        # TODO: Does this actually constrain delta? I duno, it's only the output
-        delta.data.clamp_(-epsilon, epsilon)
         if args.comet:
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
             args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
 
-        # Monitor training
-        norm = torch.norm(a, float('inf'))
         # if i % 5 == 0:
             # print(i, out[0][0], f.item())
         # Optimize control variate arguments
