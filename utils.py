@@ -198,3 +198,11 @@ def to_img(x):
     x = x.clamp(0, 1)
     x = x.view(x.size(0), 1, 28, 28)
     return x
+
+def freeze_model(model):
+    model.eval()
+    for params in model.parameters():
+        params.requires_grad = False
+    return model
+
+
