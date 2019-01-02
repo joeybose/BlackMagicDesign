@@ -119,6 +119,15 @@ def train_black(args, data, target, unk_model, model, cv):
     """
     Main training loop for black box attack
     """
+    # Settings
+    if args.estimator == "reinforce":
+        estimator = attacks.reinforce
+    if args.reward == "soft":
+        reward = attacks.soft_reward
+
+    # Freeze unknown model
+    unk_model = utils.freeze_model(unk_model)
+
     # Original target
     target_int = int(target)
     print("Original target class is: ", target_int)
@@ -126,40 +135,43 @@ def train_black(args, data, target, unk_model, model, cv):
     pred_prob = F.softmax(pred, dim=1)
     pred_prob = float(pred_prob[0][target_int])
     print("Original model prediction for this class is: ", pred_prob)
+    epsilon = 2./255
+    print("Epsilon: ", epsilon)
 
     print("++++BlackBox Attack start++++")
-    estimator = attacks.reinforce
     opt = optim.SGD(model.parameters(), lr=5e-3)
     # TODO: normalize?
     # normalize = utils.Normalize()
     # data = normalize(data)
     # target = 341 # pig class for testing
-    epsilon = 2./255
     # Loop data. For now, just loop same image
     for i in range(30):
         # Get gradients for delta model
         delta, logvar = model(data) # perturbation
         x_prime = data + delta # attack sample
-        pred = unk_model(x_prime) # target model prediction
+        pred = unk_model(x_prime).detach() # target model prediction
         pred_prob = F.softmax(pred, dim=1)
         pred_prob = float(pred_prob[0][target_int])
         print("Target model prediction with perturbation: ", pred_prob)
-        cont_var = cv(x_prime) # control variate prediction
-        f = attacks.reward(pred, target) # target loss
-        f_cv = attacks.reward(cont_var, target) # cont var loss
+        cont_var = cv(x_prime).detach() # control variate prediction
+        f = reward(pred, target) # target loss
+        f_cv = reward(cont_var, target) # cont var loss
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
         # Gradient from gradient estimator
         policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
         opt.zero_grad()
         policy_loss.backward()
         opt.step()
+        # TODO: Does this actually constrain delta? I duno, it's only the output
         delta.data.clamp_(-epsilon, epsilon)
         if args.comet:
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
             args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
+
+        # Monitor training
+        norm = torch.norm(a, float('inf'))
         # if i % 5 == 0:
             # print(i, out[0][0], f.item())
-        # TODO: constrain delta
         # Optimize control variate arguments
     if args.comet:
         clean_image = (pig_tensor)[0].detach().cpu().numpy().transpose(1,2,0)
@@ -231,6 +243,12 @@ if __name__ == '__main__':
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--latent_size', type=int, default=100, metavar='N',
                         help='Size of latent distribution (default: 100)')
+    parser.add_argument('--estimator', default='reinforce', const='reinforce',
+                    nargs='?', choices=['reinforce', 'lax'],
+                    help='Grad estimator for noise (default: %(default)s)')
+    parser.add_argument('--reward', default='soft', const='soft',
+                    nargs='?', choices=['soft', 'hard'],
+                    help='Reward for grad estimator (default: %(default)s)')
     # Training
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
