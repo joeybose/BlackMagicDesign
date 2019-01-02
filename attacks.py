@@ -118,11 +118,11 @@ def white_box_generator(args, image, target, model, G):
     for t in range(args.PGD_steps):
         delta, _ = G(x)
         delta = delta.view(delta.size(0), 1, 28, 28)
-        # delta.data.clamp_(-epsilon, epsilon)
-        # delta.data = clamp(x.data + delta.data,0.,1.) - x.data
+        delta.data.clamp_(-epsilon, epsilon)
+        delta.data = clamp(x.data + delta.data,0.,1.) - x.data
         pred = model(x.detach() + delta)
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-        loss = -nn.CrossEntropyLoss(reduction="sum")(pred.detach(), target)
+        loss = -nn.CrossEntropyLoss(reduction="sum")(pred, target)
         if args.comet:
             args.experiment.log_metric("Whitebox CE loss",loss,step=t)
         if t % 5 == 0:
@@ -133,8 +133,8 @@ def white_box_generator(args, image, target, model, G):
             p.grad.data.sign_()
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
-        delta.data.clamp_(-epsilon, epsilon)
-        delta.data = clamp(x.data + delta.data,0.,1.) - x.data
+        # delta.data.clamp_(-epsilon, epsilon)
+        # delta.data = clamp(x.data + delta.data,0.,1.) - x.data
         opt.step()
         if out != target:
             print(t, out[0][0], loss.item())
@@ -163,7 +163,8 @@ def soft_reward(pred, targ):
         pred: model log prediction vector, to be normalized below
         targ: true class integer, we want to decrease probability of this class
     """
-    pred = F.softmax(pred, dim=1)
+    # pred = F.softmax(pred, dim=1)
+    pred_prob = torch.exp(pred)
     gather = pred[:,targ] # gather target predictions
     ones = torch.ones_like(gather)
     r = ones - gather

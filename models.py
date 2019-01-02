@@ -64,6 +64,7 @@ class BlackAttack(nn.Module):
         self.fc_sig = nn.Linear(400, latent)
         self.fc3 = nn.Linear(latent, 400)
         self.fc4 = nn.Linear(400, input_size)
+        # self.covar_mat = torch.eye(latent)
 
     def encode(self, x):
         h1 = F.relu(self.fc1(x))
@@ -72,7 +73,12 @@ class BlackAttack(nn.Module):
     def reparameterize(self, logvar):
         std = torch.exp(0.5*logvar)
         eps = torch.randn_like(std)
-        return eps.mul(std)
+        mu = torch.zeros(len(std[0])).cuda()
+        covar_mat = torch.eye(len(std[0])).cuda()
+        covar_mat = std*covar_mat
+        m = MultivariateNormal(mu,covar_mat)
+        log_prob_a = m.log_prob(eps.mul(std))
+        return eps.mul(std), log_prob_a
 
     def decode(self, z):
         """
@@ -89,13 +95,13 @@ class BlackAttack(nn.Module):
 
         # Forward pass
         logvar = self.encode(x.view(-1, self.input_size))
-        z = self.reparameterize(logvar)
+        z,log_prob_a = self.reparameterize(logvar)
 
         # Shape noise to match original data
         delta = self.decode(z).unsqueeze(1)
         delta = delta.view(batch,chan,h,w)
 
-        return delta, logvar
+        return delta, logvar, log_prob_a
 
 class Flatten(nn.Module):
     def forward(self, input):
@@ -314,10 +320,9 @@ class Generator(nn.Module):
 
     def reparameterize(self, logvar):
         std = torch.exp(0.5*logvar)
-        ipdb.set_trace()
         eps = torch.randn_like(std)
         sample = eps.mul(std)
-        covar_mat = torch.diag(sample[0])
+        # covar_mat = torch.diag(sample[0])
         return sample
 
     def decode(self, z):
