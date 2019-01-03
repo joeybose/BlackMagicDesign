@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.distributions.multivariate_normal import MultivariateNormal
 import ipdb
+from torch.distributions import Normal
 
 class FC(nn.Module):
     def __init__(self, input_size, classes):
@@ -102,6 +103,68 @@ class BlackAttack(nn.Module):
         delta = delta.view(batch,chan,h,w)
 
         return delta, logvar, log_prob_a
+
+# Initialize weights
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Linear') != -1:
+        torch.nn.init.xavier_uniform_(m.weight)
+
+class GaussianPolicy(nn.Module):
+    def __init__(self, input_size, hidden_size, latent, decode=False):
+        super(GaussianPolicy, self).__init__()
+
+        self.decode = decode
+
+        self.linear1 = nn.Linear(input_size, hidden_size)
+        self.linear2 = nn.Linear(hidden_size, hidden_size)
+
+        if decode:
+            self.linear3 = nn.Linear(latent, input_size)
+        else:
+            # If no decode, then Gaussian must be size of input
+            latent = input_size # for now, no decode
+
+        self.mean_linear = nn.Linear(hidden_size, latent)
+        self.log_std_linear = nn.Linear(hidden_size, latent)
+
+
+        self.apply(weights_init)
+        self.LOG_SIG_MAX = 2
+        self.LOG_SIG_MIN = -20
+        self.epsilon = 1e-6
+
+    def forward(self, x):
+        # Reshape data for net
+        if len(x.shape)==4:
+            batch, chan, h, w = x.shape
+            x = x.view(batch,chan,h*w).squeeze(1)
+
+        x = F.relu(self.linear1(x))
+        x = F.relu(self.linear2(x))
+        mean = self.mean_linear(x)
+        log_std = self.log_std_linear(x)
+        log_std = torch.clamp(log_std, min=self.LOG_SIG_MIN, max=self.LOG_SIG_MAX)
+
+        std = log_std.exp()
+        normal = Normal(mean, std)
+        delta = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+        log_prob = normal.log_prob(delta)
+
+        if self.decode:
+            delta = self.linear(delta)
+            # Problem here is log_prob can't be for delta unless same size...
+
+        # Enforcing Action Bound
+        # log_prob -= torch.log(1 - action.pow(2) + self.epsilon)
+        # log_prob = log_prob.sum(-1, keepdim=True)
+
+
+        # Shape noise to match original data
+        delta = delta.unsqueeze(1)
+        delta = delta.view(batch,chan,h,w)
+
+        return delta, mean, log_std, log_prob
 
 class Flatten(nn.Module):
     def forward(self, input):

@@ -122,7 +122,9 @@ def train_black(args, data, target, unk_model, model, cv):
     """
     # Settings
     if args.estimator == "reinforce":
-        estimator = attacks.reinforce
+        estimator = attacks.reinforce_new
+    elif args.estimator == "lax":
+        estimator = attacks.lax_black
     if args.reward == "soft":
         reward = attacks.soft_reward
 
@@ -147,6 +149,7 @@ def train_black(args, data, target, unk_model, model, cv):
 
     print("++++BlackBox Attack start++++")
     opt = optim.SGD(model.parameters(), lr=1e-2)
+    cv_opt = optim.SGD(cv.parameters(), lr=1e-2)
     # TODO: normalize?
     # normalize = utils.Normalize()
     # data = normalize(data)
@@ -154,39 +157,56 @@ def train_black(args, data, target, unk_model, model, cv):
     for i in range(args.bb_steps):
         # Get prediction
         # Get gradients for delta model
-        delta, logvar, log_prob_a = model(data) # perturbation
-        # delta = F.tanh(delta)*epsilon
+        delta, mu, logvar, log_prob_a = model(data) # perturbation
         # TODO: Best way to deal with delta?
         norm_pre = torch.norm(delta, float('inf'))
+        # Delta constraint
         delta.data.clamp_(-epsilon, epsilon)
         delta.data = torch.clamp(data.data + delta.data,0.,1.) - data.data
         x_prime = data + delta # attack sample
         pred = unk_model(x_prime).detach() # target model prediction
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
 
+        # Print some info
+        def print_info():
+            norm = torch.norm(delta, float('inf'))
+            pred_prob = torch.exp(pred)
+            pred_prob = float(pred_prob[0][target_int])
+            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
+                    .format(i, pred_prob, norm_pre, norm, out[0][0]))
+
         # Break if attack successful
         if not bool(out.squeeze(1) == target):
+            print("Attack successful after {} steps".format(i))
             print_info()
-            # delta, logvar, log_prob_a = model(data) # debug nan
             break
 
         # Monitor training
-        cont_var = cv(x_prime).detach() # control variate prediction
+        cont_var = cv(x_prime) # control variate prediction
         f = reward(pred, target) # target loss
         f_cv = reward(cont_var, target) # cont var loss
-        # Gradient from gradient estimator
-        # policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
-        policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
-        # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        KLD = -0.5 * torch.sum(1 + logvar - logvar.exp())
-        loss = policy_loss + KLD
-        opt.zero_grad()
-        loss.backward()
-        # Grad clip
-        # if args.clip_grad:
-            # clip_grad_norm_(model.parameters(), 10)
 
-        # Max inner product of inty norm constraint
+        # Gradient from gradient estimator
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+        # Old method:
+        # policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
+        # loss = policy_loss + KLD
+        # opt.zero_grad()
+        # loss.backward()
+
+        # New method:
+        opt.zero_grad()
+        # Backprop KL gradient, retain since we'll backprop policy grad later
+        KLD.backward(retain_graph=True)
+        # Get gradient wrt to log prob
+        d_log_prob_a = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv,
+                                    param=[mu,logvar], cv=cv, cv_opt=cv_opt)
+        # Backprop to all leaf nodes
+        if d_log_prob_a is not None:
+            log_prob_a.backward(d_log_prob_a)
+
+        # Max inner product of infty norm constraint
         for p in model.parameters():
             p.grad.data.sign_()
         opt.step()
@@ -194,19 +214,12 @@ def train_black(args, data, target, unk_model, model, cv):
             args.experiment.log_metric("Blackbox CE loss",f,step=i)
             args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
 
-        def print_info():
-            norm = torch.norm(delta, float('inf'))
-            pred_prob = torch.exp(pred)
-            pred_prob = float(pred_prob[0][target_int])
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
-                    .format(i, pred_prob, norm_pre, norm, out[0][0]))
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp: {:1.4f} | delta norm post-clamp: {:1.4f}"\
-                    .format(i, pred_prob, norm_pre, norm))
-        if i % 10 == 0:
+        if i % 100 == 0:
             print_info()
         # Optimize control variate arguments
-    print("Attack successful after {} steps".format(i))
-    print_info()
+    if i == args.bb_steps - 1:
+        print("Attack failed within max steps of {}".format(args.bb_steps))
+        print_info()
     if args.comet:
         clean_image = (data)[0].detach().cpu()
         adv_image=(x_prime)[0].detach().cpu()
@@ -256,7 +269,8 @@ def main(args):
                     test_loader, unk_model, G)
 
     # Attack model
-    model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
+    model = to_cuda(models.GaussianPolicy(args.input_size, 400, args.latent_size))
+    # model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
 
     # Control Variate
     cv = to_cuda(models.FC(args.input_size, args.classes))
@@ -281,7 +295,7 @@ if __name__ == '__main__':
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--latent_size', type=int, default=50, metavar='N',
-                        help='Size of latent distribution (default: 100)')
+                        help='Size of latent distribution (default: 50)')
     parser.add_argument('--estimator', default='reinforce', const='reinforce',
                     nargs='?', choices=['reinforce', 'lax'],
                     help='Grad estimator for noise (default: %(default)s)')
