@@ -155,9 +155,9 @@ def train_black(args, data, target, unk_model, model, cv):
         # Get prediction
         # Get gradients for delta model
         delta, mu, logvar, log_prob_a = model(data) # perturbation
-        # delta = F.tanh(delta)*epsilon
         # TODO: Best way to deal with delta?
         norm_pre = torch.norm(delta, float('inf'))
+        # Delta constraint
         delta.data.clamp_(-epsilon, epsilon)
         delta.data = torch.clamp(data.data + delta.data,0.,1.) - data.data
         x_prime = data + delta # attack sample
@@ -171,8 +171,6 @@ def train_black(args, data, target, unk_model, model, cv):
             pred_prob = float(pred_prob[0][target_int])
             print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
                     .format(i, pred_prob, norm_pre, norm, out[0][0]))
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp: {:1.4f} | delta norm post-clamp: {:1.4f}"\
-                    .format(i, pred_prob, norm_pre, norm))
 
         # Break if attack successful
         if not bool(out.squeeze(1) == target):
@@ -209,6 +207,7 @@ def train_black(args, data, target, unk_model, model, cv):
         # Optimize control variate arguments
     if i == args.bb_steps - 1:
         print("Attack failed within max steps of {}".format(args.bb_steps))
+        print_info()
     if args.comet:
         clean_image = (data)[0].detach().cpu()
         adv_image=(x_prime)[0].detach().cpu()
