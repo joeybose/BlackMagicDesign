@@ -54,7 +54,7 @@ def load_imagenet_classes():
         imagenet_classes = {int(i):x[1] for i,x in json.load(f).items()}
     return imagenet_classes
 
-def get_data(args):
+def get_single_data(args):
     """
     Data loader. For now, just a test sample
     """
@@ -79,6 +79,17 @@ def get_data(args):
     # Get flat input size
     args.input_size = tensor[0][0].flatten().shape[0]
     return tensor, target
+
+def get_data(args):
+    """
+    Data loader. For now, just a test sample
+    """
+    if args.mnist:
+        trainloader, testloader = load_mnist(normalize=False)
+        args.classes = 10
+    else:
+        raise NotImplementedError
+    return trainloader,testloader
 
 def load_unk_model(args):
     """

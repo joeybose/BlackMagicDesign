@@ -225,7 +225,10 @@ def main(args):
         normalize=utils.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
 
     # Load data
-    data,target = utils.get_data(args)
+    if args.single_data:
+        data,target = utils.get_single_data(args)
+    else:
+        train_loader,test_loader = utils.get_data(args)
 
     # The unknown model to attack
     unk_model = utils.load_unk_model(args)
@@ -245,11 +248,12 @@ def main(args):
         encoder, decoder, ae = None, None, None
     # Test white box
     if args.white:
-        # pred, delta = white_box_untargeted(args, data, target, unk_model,\
-                # encoder, decoder, vae, ae, normalize)
-        # pred, delta = whitebox_pgd(args, data, target, unk_model, normalize)
         G = models.Generator(input_size=784).to(args.device)
-        pred, delta = attacks.white_box_generator(args, data, target, unk_model, G)
+        if args.single_data:
+            pred, delta = attacks.single_white_box_generator(args, data, target, unk_model, G)
+        else:
+            pred, delta = attacks.white_box_generator(args, train_loader,\
+                    test_loader, unk_model, G)
 
     # Attack model
     model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
@@ -258,7 +262,8 @@ def main(args):
     cv = to_cuda(models.FC(args.input_size, args.classes))
 
     # Launch training
-    train_black(args, data, target, unk_model, model, cv)
+    if args.single_data:
+        train_black(args, data, target, unk_model, model, cv)
 
 
 if __name__ == '__main__':
@@ -292,8 +297,14 @@ if __name__ == '__main__':
 			help='Epsilon for Delta (default: 0.1)')
     parser.add_argument('--bb_steps', type=int, default=1000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
+    parser.add_argument('--attack_epochs', type=int, default=3, metavar='N',
+                        help='Max numbe of epochs to train G')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
+    parser.add_argument('--input_size', type=int, default=784, metavar='S',
+                        help='Input size for MNIST is default')
+    parser.add_argument('--batch_size', type=int, default=1024, metavar='S',
+                        help='Batch size')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
     parser.add_argument('--clip_grad', default=True, action='store_true',
@@ -306,6 +317,8 @@ if __name__ == '__main__':
                         help='Use MNIST as Dataset')
     parser.add_argument('--white', default=False, action='store_true',
                         help='White Box test')
+    parser.add_argument('--single_data', default=False, action='store_true',
+                        help='Test on a single data')
     # Bells
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
