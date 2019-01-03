@@ -122,7 +122,9 @@ def train_black(args, data, target, unk_model, model, cv):
     """
     # Settings
     if args.estimator == "reinforce":
-        estimator = attacks.reinforce
+        estimator = attacks.reinforce_new
+    elif args.estimator == "lax":
+        estimator = attacks.lax_black
     if args.reward == "soft":
         reward = attacks.soft_reward
 
@@ -147,6 +149,7 @@ def train_black(args, data, target, unk_model, model, cv):
 
     print("++++BlackBox Attack start++++")
     opt = optim.SGD(model.parameters(), lr=1e-2)
+    cv_opt = optim.SGD(cv.parameters(), lr=1e-2)
     # TODO: normalize?
     # normalize = utils.Normalize()
     # data = normalize(data)
@@ -179,22 +182,31 @@ def train_black(args, data, target, unk_model, model, cv):
             break
 
         # Monitor training
-        cont_var = cv(x_prime).detach() # control variate prediction
+        cont_var = cv(x_prime) # control variate prediction
         f = reward(pred, target) # target loss
         f_cv = reward(cont_var, target) # cont var loss
-        # Gradient from gradient estimator
-        # policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
-        policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
-        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        # KLD = -0.5 * torch.sum(1 + logvar - logvar.exp())
-        loss = policy_loss + KLD
-        opt.zero_grad()
-        loss.backward()
-        # Grad clip
-        # if args.clip_grad:
-            # clip_grad_norm_(model.parameters(), 10)
 
-        # Max inner product of inty norm constraint
+        # Gradient from gradient estimator
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+        # Old method:
+        # policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
+        # loss = policy_loss + KLD
+        # opt.zero_grad()
+        # loss.backward()
+
+        # New method:
+        opt.zero_grad()
+        # Backprop KL gradient, retain since we'll backprop policy grad later
+        KLD.backward(retain_graph=True)
+        # Get gradient wrt to log prob
+        d_log_prob_a = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv,
+                                    param=[mu,logvar], cv=cv, cv_opt=cv_opt)
+        # Backprop to all leaf nodes
+        if d_log_prob_a is not None:
+            log_prob_a.backward(d_log_prob_a)
+
+        # Max inner product of infty norm constraint
         for p in model.parameters():
             p.grad.data.sign_()
         opt.step()

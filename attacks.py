@@ -168,7 +168,6 @@ def soft_reward(pred, targ):
     gather = pred[:,targ] # gather target predictions
     ones = torch.ones_like(gather)
     r = ones - gather
-    # r = gather.mean() # old line of code
     r = r.mean()
 
     return r
@@ -207,7 +206,13 @@ def reinforce(log_prob, f, **kwargs):
     policy_loss = (-log_prob) * f.detach()
     return policy_loss
 
-def relax_black(log_prob, f, f_cv):
+def reinforce_new(log_prob, f, **kwargs):
+    policy_loss = (-log_prob) * f.detach()
+    d_loss = torch.autograd.grad([policy_loss.mean()], [log_prob],
+                                        create_graph=True,retain_graph=True)[0]
+    return d_loss.detach()
+
+def lax_black(log_prob, f, f_cv, param, cv, cv_opt):
     """
     Returns policy loss equivalent to:
     (f(x) - c(x))*grad(log(policy)) + grad(c(x))
@@ -218,8 +223,39 @@ def relax_black(log_prob, f, f_cv):
 
     Checkout https://github.com/duvenaud/relax/blob/master/pytorch_toy.py
     """
+    log_prob = (-1)*log_prob
+    # Gradients of log_prob wrt to Gaussian params
+    d_params_probs = torch.autograd.grad([log_prob.sum()],param,
+                                    create_graph=True, retain_graph=True)
+
+    # Gradients of cont var wrt to Gaussian params
+    d_params_cont = torch.autograd.grad([f_cv], param,
+                                    create_graph=True, retain_graph=True)
+
+
+    # Difference between f and control variate
     ac = f - f_cv
-    g_cont_var = 0 # grad from control variate
-    policy_loss = (-log_prob) * ac - f_cv
-    cv_loss = policy_loss
-    return policy_loss
+
+    # Scale gradient, negative cv gradient since reward
+    d_log_prob = []
+    for p, c in zip(d_params_probs, d_params_cont):
+        d_log_prob.append(ac*p - c)
+
+    # Backprop param gradients
+    for p, g in zip(param, d_log_prob):
+        p.backward(g.detach(), retain_graph=True)
+
+    # Optimize control variate to minimize variance
+    var = sum([v**2 for v in d_log_prob])
+    d_var = torch.autograd.grad([var.mean()], cv.parameters(),
+                                    create_graph=True, retain_graph=True)
+
+    # Set gradients to control variate params
+    for p, g in zip(cv.parameters(), d_var):
+        p.grad = g
+
+    cv_opt.step()
+
+    return None
+
+
