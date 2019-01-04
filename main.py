@@ -122,6 +122,8 @@ def train_black(args, data, target, unk_model, model, cv):
     """
     # Settings
     if args.estimator == "reinforce":
+        estimator = attacks.reinforce
+    if args.estimator == "reinforce_new":
         estimator = attacks.reinforce_new
     elif args.estimator == "lax":
         estimator = attacks.lax_black
@@ -188,15 +190,16 @@ def train_black(args, data, target, unk_model, model, cv):
 
         # Gradient from gradient estimator
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        opt.zero_grad()
 
         # Old method:
         # policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
+        # policy_loss = estimator(log_prob=delta, f=f, f_cv=f_cv).sum()
         # loss = policy_loss + KLD
-        # opt.zero_grad()
+        # loss = policy_loss
         # loss.backward()
 
         # New method:
-        opt.zero_grad()
         # Backprop KL gradient, retain since we'll backprop policy grad later
         KLD.backward(retain_graph=True)
         # Get gradient wrt to log prob

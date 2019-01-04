@@ -110,6 +110,8 @@ def weights_init(m):
     if classname.find('Linear') != -1:
         torch.nn.init.xavier_uniform_(m.weight)
 
+# Based on:
+# https://github.com/pranz24/pytorch-soft-actor-critic/blob/master/model.py#L66
 class GaussianPolicy(nn.Module):
     def __init__(self, input_size, hidden_size, latent, decode=False):
         super(GaussianPolicy, self).__init__()

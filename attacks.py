@@ -302,7 +302,6 @@ def lax_black(log_prob, f, f_cv, param, cv, cv_opt):
     d_params_cont = torch.autograd.grad([f_cv], param,
                                     create_graph=True, retain_graph=True)
 
-
     # Difference between f and control variate
     ac = f - f_cv
 
