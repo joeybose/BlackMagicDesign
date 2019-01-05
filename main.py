@@ -187,7 +187,6 @@ def train_black(args, data, target, unk_model, model, cv):
         cont_var = cv(x_prime) # control variate prediction
         f = reward(pred, target) # target loss
         f_cv = reward(cont_var, target) # cont var loss
-
         # Gradient from gradient estimator
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         opt.zero_grad()
@@ -272,7 +271,8 @@ def main(args):
                     test_loader, unk_model, G)
 
     # Attack model
-    model = to_cuda(models.GaussianPolicy(args.input_size, 400, args.latent_size))
+    model = models.GaussianPolicy(args.input_size, 400,\
+            args.latent_size).to(args.device)
     # model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
 
     # Control Variate
