@@ -173,7 +173,7 @@ def train_classifier(args, model, device, train_loader, optimizer, epoch):
         loss = criterion(output, target)
         loss.backward()
         train_loss += loss.item()
-        running_loss = loss.data[0]
+        running_loss = loss.item()
         _, predicted = output.max(1)
         total += target.size(0)
         correct += predicted.eq(target).sum().item()
@@ -183,11 +183,10 @@ def train_classifier(args, model, device, train_loader, optimizer, epoch):
                             batch_idx *len(data),len(train_loader.dataset),\
                             100.*batch_idx/len(train_loader),loss.item(),\
                             100.*correct/total))
-	    if early_stopping:
-		if running_loss < early_stop_param:
-		    print("Early Stopping !!!!!!!!!!")
-		    break
-	    running_loss = 0.0
+            if running_loss < early_stop_param:
+                print("Early Stopping !!!!!!!!!!")
+                break
+            running_loss = 0.0
 
 def test_classifier(args, model, device, test_loader):
     model.eval()
