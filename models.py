@@ -1,10 +1,37 @@
 import torch
+import math
 from torch import nn, optim
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.distributions.multivariate_normal import MultivariateNormal
 import ipdb
 from torch.distributions import Normal
+
+class Bottleneck(nn.Module):
+    def __init__(self, in_planes, growth_rate):
+        super(Bottleneck, self).__init__()
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.conv1 = nn.Conv2d(in_planes, 4*growth_rate, kernel_size=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(4*growth_rate)
+        self.conv2 = nn.Conv2d(4*growth_rate, growth_rate, kernel_size=3, padding=1, bias=False)
+
+    def forward(self, x):
+        out = self.conv1(F.relu(self.bn1(x)))
+        out = self.conv2(F.relu(self.bn2(out)))
+        out = torch.cat([out,x], 1)
+        return out
+
+
+class Transition(nn.Module):
+    def __init__(self, in_planes, out_planes):
+        super(Transition, self).__init__()
+        self.bn = nn.BatchNorm2d(in_planes)
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        out = self.conv(F.relu(self.bn(x)))
+        out = F.avg_pool2d(out, 2)
+        return out
 
 class FC(nn.Module):
     def __init__(self, input_size, classes):
@@ -400,4 +427,107 @@ class Generator(nn.Module):
         z = self.reparameterize(logvar)
         delta = self.decode(z)
 
+        return delta, logvar
+
+class ConvGenerator(nn.Module):
+    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_classes=10, latent=50):
+        """
+        A modified VAE. Latent is Gaussian (0, sigma) of dimension latent.
+        Decode latent to a noise vector of `input_size`,
+
+        Note the Gaussian \mu is not learned since input `x` acts as mean
+
+        Args:
+            input_size: size of image, 784 in case of MNIST
+            latent: size of multivar Gaussian params
+        """
+        super(ConvGenerator, self).__init__()
+        self.growth_rate = growth_rate
+
+        num_planes = 2*growth_rate
+        self.conv1 = nn.Conv2d(3, num_planes, kernel_size=3, padding=1, bias=False)
+
+        self.dense1 = self._make_dense_layers(block, num_planes, nblocks[0])
+        num_planes += nblocks[0]*growth_rate
+        out_planes = int(math.floor(num_planes*reduction))
+        self.trans1 = Transition(num_planes, out_planes)
+        num_planes = out_planes
+
+        self.dense2 = self._make_dense_layers(block, num_planes, nblocks[1])
+        num_planes += nblocks[1]*growth_rate
+        out_planes = int(math.floor(num_planes*reduction))
+        self.trans2 = Transition(num_planes, out_planes)
+        num_planes = out_planes
+
+        self.dense3 = self._make_dense_layers(block, num_planes, nblocks[2])
+        num_planes += nblocks[2]*growth_rate
+        out_planes = int(math.floor(num_planes*reduction))
+        self.trans3 = Transition(num_planes, out_planes)
+        num_planes = out_planes
+
+        self.dense4 = self._make_dense_layers(block, num_planes, nblocks[3])
+        num_planes += nblocks[3]*growth_rate
+
+        self.bn = nn.BatchNorm2d(num_planes)
+        self.linear_1 = nn.Linear(num_planes, latent)
+        self.linear_2 = nn.Linear(num_planes, latent)
+        ngf = 64
+        self.latent = latent
+        self.decoder = nn.Sequential(
+            # input is Z, going into a convolution
+            nn.ConvTranspose2d(latent, ngf * 8, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(ngf * 8),
+            nn.ReLU(True),
+            # state size. (ngf*8) x 4 x 4
+            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf * 4),
+            nn.ReLU(True),
+            # # state size. (ngf*4) x 8 x 8
+            nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf * 2),
+            nn.ReLU(True),
+            # # state size. (ngf*2) x 16 x 16
+            nn.ConvTranspose2d(ngf * 2, 3, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(3),
+            nn.ReLU(True),
+            # # state size. (ngf) x 32 x 32
+            nn.Tanh()
+        )
+
+    def _make_dense_layers(self, block, in_planes, nblock):
+        layers = []
+        for i in range(nblock):
+            layers.append(block(in_planes, self.growth_rate))
+            in_planes += self.growth_rate
+        return nn.Sequential(*layers)
+
+    def encode(self, out):
+        out_1 = self.linear_1(out)
+        out_2 = self.linear_2(out)
+        h1 = F.relu(out_1)
+        h2 = F.relu(out_2)
+        return h1,h2
+
+    def reparameterize(self, mu, logvar):
+        std = logvar.mul(0.5).exp_()
+        eps = torch.cuda.FloatTensor(std.size()).normal_()
+        eps = Variable(eps)
+        return eps.mul(std).add_(mu)
+
+    def decode(self, z):
+        z = z.view(-1,self.latent,1,1)
+        gen = self.decoder(z)
+        return gen
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.trans1(self.dense1(out))
+        out = self.trans2(self.dense2(out))
+        out = self.trans3(self.dense3(out))
+        out = self.dense4(out)
+        out = F.avg_pool2d(F.relu(self.bn(out)), 4)
+        out = out.view(out.size(0), -1)
+        mu,logvar = self.encode(out)
+        z = self.reparameterize(mu,logvar)
+        delta = self.decode(z)
         return delta, logvar

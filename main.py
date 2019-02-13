@@ -116,126 +116,19 @@ def train_mnist_ae(args):
         decoder = model.module.decoder
     return encoder, decoder, model
 
-def train_black(args, data, target, unk_model, model, cv):
-    """
-    Main training loop for black box attack
-    """
-    # Settings
-    if args.estimator == "reinforce":
-        estimator = attacks.reinforce_new
-    elif args.estimator == "lax":
-        estimator = attacks.lax_black
-    if args.reward == "soft":
-        reward = attacks.soft_reward
-
-    # Freeze unknown model
-    unk_model = utils.freeze_model(unk_model)
-
-    # Original target
-    target_int = int(target)
-    print("Original target class is: ", target_int)
-    pred = unk_model(data) # target model prediction
-    # pred_prob = F.softmax(pred, dim=1)
-    pred_prob = torch.exp(pred)
-    pred_prob = float(pred_prob[0][target_int])
-    print("Original model prediction for this class is: ", pred_prob)
-    out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
-    print("Current model prediction for this class is: ",\
-            out[0][0].cpu().numpy())
-    if out!= target:
-        print("Breaking because wrong classification to begin with")
-    epsilon = args.epsilon
-    print("Epsilon: ", epsilon)
-
-    print("++++BlackBox Attack start++++")
-    opt = optim.SGD(model.parameters(), lr=1e-2)
-    cv_opt = optim.SGD(cv.parameters(), lr=1e-2)
-    # TODO: normalize?
-    # normalize = utils.Normalize()
-    # data = normalize(data)
-    # Loop data. For now, just loop same image
-    for i in range(args.bb_steps):
-        # Get prediction
-        # Get gradients for delta model
-        delta, mu, logvar, log_prob_a = model(data) # perturbation
-        # TODO: Best way to deal with delta?
-        norm_pre = torch.norm(delta, float('inf'))
-        # Delta constraint
-        delta.data.clamp_(-epsilon, epsilon)
-        delta.data = torch.clamp(data.data + delta.data,0.,1.) - data.data
-        x_prime = data + delta # attack sample
-        pred = unk_model(x_prime).detach() # target model prediction
-        out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
-
-        # Print some info
-        def print_info():
-            norm = torch.norm(delta, float('inf'))
-            pred_prob = torch.exp(pred)
-            pred_prob = float(pred_prob[0][target_int])
-            print("[{:1.0f}] Target pred: {:1.4f} | delta norm pre-clamp:{:1.4f} | delta norm post-clamp: {:1.4f} | Curr Class:{:d}"\
-                    .format(i, pred_prob, norm_pre, norm, out[0][0]))
-
-        # Break if attack successful
-        if not bool(out.squeeze(1) == target):
-            print("Attack successful after {} steps".format(i))
-            print_info()
-            break
-
-        # Monitor training
-        cont_var = cv(x_prime) # control variate prediction
-        f = reward(pred, target) # target loss
-        f_cv = reward(cont_var, target) # cont var loss
-
-        # Gradient from gradient estimator
-        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-
-        # Old method:
-        # policy_loss = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv).sum()
-        # loss = policy_loss + KLD
-        # opt.zero_grad()
-        # loss.backward()
-
-        # New method:
-        opt.zero_grad()
-        # Backprop KL gradient, retain since we'll backprop policy grad later
-        KLD.backward(retain_graph=True)
-        # Get gradient wrt to log prob
-        d_log_prob_a = estimator(log_prob=-1*log_prob_a, f=f, f_cv=f_cv,
-                                    param=[mu,logvar], cv=cv, cv_opt=cv_opt)
-        # Backprop to all leaf nodes
-        if d_log_prob_a is not None:
-            log_prob_a.backward(d_log_prob_a)
-
-        # Max inner product of infty norm constraint
-        for p in model.parameters():
-            p.grad.data.sign_()
-        opt.step()
-        if args.comet:
-            args.experiment.log_metric("Blackbox CE loss",f,step=i)
-            args.experiment.log_metric("Blackbox Policy loss",policy_loss,step=i)
-
-        if i % 100 == 0:
-            print_info()
-        # Optimize control variate arguments
-    if i == args.bb_steps - 1:
-        print("Attack failed within max steps of {}".format(args.bb_steps))
-        print_info()
-    if args.comet:
-        clean_image = (data)[0].detach().cpu()
-        adv_image=(x_prime)[0].detach().cpu()
-        delta_image = (delta)[0].detach().cpu()
-        utils.plot_image_to_comet(args,clean_image,"BB_clean.png")
-        utils.plot_image_to_comet(args,adv_image,"BB_Adv.png")
-        utils.plot_image_to_comet(args,delta_image,"BB_delta.png")
-
 def main(args):
     if args.mnist:
         # Normalize image for MNIST
         # normalize = Normalize(mean=(0.1307,), std=(0.3081,))
         normalize = None
+        args.input_size = 784
+    elif args.cifar:
+        normalize=utils.Normalize(mean=[0.5,0.5,0.5],std=[0.5,0.5,0.5])
+        args.input_size = 32*32*3
     else:
         # Normalize image for ImageNet
         normalize=utils.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
+        args.input_size = 150528
 
     # Load data
     if args.single_data:
@@ -243,12 +136,13 @@ def main(args):
     else:
         train_loader,test_loader = utils.get_data(args)
 
+    if args.debug:
+        ipdb.set_trace()
+
     # The unknown model to attack
     unk_model = utils.load_unk_model(args)
 
     # Try Whitebox Untargeted first
-    if args.debug:
-        ipdb.set_trace()
 
     if args.train_vae:
         encoder, decoder, vae = train_mnist_vae(args)
@@ -261,24 +155,29 @@ def main(args):
         encoder, decoder, ae = None, None, None
     # Test white box
     if args.white:
-        G = models.Generator(input_size=784).to(args.device)
+        if args.mnist:
+            G = models.Generator(input_size=784).to(args.device)
+        elif args.cifar:
+            G = models.ConvGenerator(models.Bottleneck, [6,12,24,16], growth_rate=12).to(args.device)
         if args.single_data:
-            pred, delta = attacks.single_white_box_generator(args, data, target, unk_model, G)
+            # pred, delta = attacks.single_white_box_generator(args, data, target, unk_model, G)
+            # pred, delta = attacks.white_box_untargeted(args, data, target, unk_model)
+            pred, delta = attacks.whitebox_pgd(args, data, target, unk_model)
         else:
             pred, delta = attacks.white_box_generator(args, train_loader,\
                     test_loader, unk_model, G)
 
     # Attack model
-    model = to_cuda(models.GaussianPolicy(args.input_size, 400, args.latent_size))
-    # model = to_cuda(models.BlackAttack(args.input_size, args.latent_size))
+    model = models.GaussianPolicy(args.input_size, 400,
+        args.latent_size,decode=False).to(args.device)
 
     # Control Variate
     cv = to_cuda(models.FC(args.input_size, args.classes))
 
     # Launch training
     if args.single_data:
-        train_black(args, data, target, unk_model, model, cv)
-
+        pred, delta = attacks.single_blackbox_attack(args, 'lax', data, target, unk_model, model, cv)
+        pred, delta = attacks.single_blackbox_attack(args, 'reinforce', data, target, unk_model, model, cv)
 
 if __name__ == '__main__':
     """
@@ -309,7 +208,7 @@ if __name__ == '__main__':
                         help='max gradient steps (default: 30)')
     parser.add_argument('--epsilon', type=float, default=0.5, metavar='M',
 			help='Epsilon for Delta (default: 0.1)')
-    parser.add_argument('--bb_steps', type=int, default=1000, metavar='N',
+    parser.add_argument('--bb_steps', type=int, default=2000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
     parser.add_argument('--attack_epochs', type=int, default=3, metavar='N',
                         help='Max numbe of epochs to train G')
@@ -317,7 +216,7 @@ if __name__ == '__main__':
                         help='random seed (default: 1)')
     parser.add_argument('--input_size', type=int, default=784, metavar='S',
                         help='Input size for MNIST is default')
-    parser.add_argument('--batch_size', type=int, default=1024, metavar='S',
+    parser.add_argument('--batch_size', type=int, default=64, metavar='S',
                         help='Batch size')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
@@ -329,6 +228,8 @@ if __name__ == '__main__':
                         help='Train AE')
     parser.add_argument('--mnist', default=False, action='store_true',
                         help='Use MNIST as Dataset')
+    parser.add_argument('--cifar', default=False, action='store_true',
+                        help='Use CIFAR-10 as Dataset')
     parser.add_argument('--white', default=False, action='store_true',
                         help='White Box test')
     parser.add_argument('--single_data', default=False, action='store_true',
