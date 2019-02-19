@@ -136,13 +136,13 @@ def main(args):
     else:
         train_loader,test_loader = utils.get_data(args)
 
-    if args.debug:
-        ipdb.set_trace()
 
     # The unknown model to attack
     unk_model = utils.load_unk_model(args)
 
     # Try Whitebox Untargeted first
+    if args.debug:
+        ipdb.set_trace()
 
     if args.train_vae:
         encoder, decoder, vae = train_mnist_vae(args)
@@ -153,21 +153,39 @@ def main(args):
         encoder, decoder, ae = train_mnist_ae(args)
     else:
         encoder, decoder, ae = None, None, None
+
     # Test white box
     if args.white:
+        # Choose Attack Function
+        if args.no_pgd_optim:
+            white_attack_func = attacks.L2_white_box_generator
+        else:
+            white_attack_func = attacks.PGD_white_box_generator
+
+        # Choose Dataset
         if args.mnist:
             G = models.Generator(input_size=784).to(args.device)
         elif args.cifar:
-            G = models.ConvGenerator(models.Bottleneck, [6,12,24,16], growth_rate=12).to(args.device)
+            if args.vanilla_G:
+                G = models.DCGAN().to(args.device)
+                G = nn.DataParallel(G.generator)
+            else:
+                G = models.ConvGenerator(models.Bottleneck, [6,12,24,16], growth_rate=12).to(args.device)
+                G = nn.DataParallel(G)
+            nc,h,w = 3,32,32
+
+        # Test on a single data point or entire dataset
         if args.single_data:
             # pred, delta = attacks.single_white_box_generator(args, data, target, unk_model, G)
             # pred, delta = attacks.white_box_untargeted(args, data, target, unk_model)
-            pred, delta = attacks.whitebox_pgd(args, data, target, unk_model)
+            pred, delta = attacks.whitebox_pgd(args, data, target, unk_model,\
+                    nc, h, w)
         else:
-            pred, delta = attacks.white_box_generator(args, train_loader,\
-                    test_loader, unk_model, G)
+            pred, delta = white_attack_func(args, train_loader,\
+                    test_loader, unk_model, G, nc, h, w)
 
-    # Attack model
+    # Blackbox Attack model
+    ipdb.set_trace()
     model = models.GaussianPolicy(args.input_size, 400,
         args.latent_size,decode=False).to(args.device)
 
@@ -204,20 +222,28 @@ if __name__ == '__main__':
     # Training
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--PGD_steps', type=int, default=100, metavar='N',
+    parser.add_argument('--PGD_steps', type=int, default=40, metavar='N',
+                        help='max gradient steps (default: 30)')
+    parser.add_argument('--max_iter', type=int, default=20, metavar='N',
                         help='max gradient steps (default: 30)')
     parser.add_argument('--epsilon', type=float, default=0.5, metavar='M',
 			help='Epsilon for Delta (default: 0.1)')
+    parser.add_argument('--LAMBDA', type=float, default=0.1, metavar='M',
+			help='Lambda for L2 lagrange penalty (default: 0.1)')
     parser.add_argument('--bb_steps', type=int, default=2000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
-    parser.add_argument('--attack_epochs', type=int, default=3, metavar='N',
+    parser.add_argument('--attack_epochs', type=int, default=10, metavar='N',
                         help='Max numbe of epochs to train G')
+    parser.add_argument('--num_flows', type=int, default=30, metavar='N',
+                        help='Number of Flows')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--input_size', type=int, default=784, metavar='S',
                         help='Input size for MNIST is default')
-    parser.add_argument('--batch_size', type=int, default=64, metavar='S',
+    parser.add_argument('--batch_size', type=int, default=256, metavar='S',
                         help='Batch size')
+    parser.add_argument('--test_batch_size', type=int, default=512, metavar='S',
+                        help='Test Batch size')
     parser.add_argument('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
     parser.add_argument('--clip_grad', default=True, action='store_true',
@@ -232,6 +258,12 @@ if __name__ == '__main__':
                         help='Use CIFAR-10 as Dataset')
     parser.add_argument('--white', default=False, action='store_true',
                         help='White Box test')
+    parser.add_argument('--carlini_loss', default=False, action='store_true',
+                        help='Use CW loss function')
+    parser.add_argument('--no_pgd_optim', default=False, action='store_true',
+                        help='Use Lagrangian objective instead of PGD')
+    parser.add_argument('--vanilla_G', default=False, action='store_true',
+                        help='Vanilla G White Box')
     parser.add_argument('--single_data', default=False, action='store_true',
                         help='Test on a single data')
     # Bells

@@ -15,6 +15,8 @@ from advertorch.utils import clamp
 from torch import optim
 from torch.autograd import Variable
 import json
+import os
+import numpy as np
 import argparse
 from tqdm import tqdm
 from utils import *
@@ -152,27 +154,123 @@ def single_white_box_generator(args, image, target, model, G):
         plot_image_to_comet(args,delta_image,"delta.png")
     return out, delta
 
-def white_box_generator(args, train_loader, test_loader, model, G):
+def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
+    ''' Testing Phase '''
     epsilon = args.epsilon
-    # Create noise vector
-    opt = optim.SGD(G.parameters(), lr=1e-2)
+    test_itr = tqdm(enumerate(test_loader),\
+            total=len(test_loader.dataset)/args.test_batch_size)
+    correct_test = 0
+    for batch_idx, (data, target) in test_itr:
+        x, target = data.to(args.device), target.to(args.device)
+        # for t in range(args.PGD_steps):
+        delta  = G(x)
+        delta = delta.view(delta.size(0), nc, h, w)
+        # Clipping is equivalent to projecting back onto the l_\infty ball
+        # This technique is known as projected gradient descent (PGD)
+        delta.data.clamp_(-epsilon, epsilon)
+        delta.data = torch.clamp(x.data + delta.data,-1.,1.) - x.data
+        pred = model(x.detach() + delta)
+        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+
+        correct_test += out.eq(target.unsqueeze(1).data).sum()
+
+    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
+            .format(correct_test, len(test_loader.dataset),\
+                100. * correct_test / len(test_loader.dataset)))
+    if args.comet:
+        if not args.mnist:
+            index = np.random.choice(len(x) - 64, 1)[0]
+            clean_image = (x)[index:index+64].detach()#.permute(-1,1,2,0)
+            adv_image = (x + delta)[index:index+64].detach()#.permute(-1,1,2,0)
+            delta_image = (delta)[index:index+64].detach()#.permute(-1,1,2,0)
+        else:
+            clean_image = (x)[0].detach()
+            adv_image = (x + delta)[0].detach()
+            delta_image = (delta)[0].detach()
+        plot_image_to_comet(args,clean_image,"clean.png",normalize=True)
+        plot_image_to_comet(args,adv_image,"Adv.png",normalize=True)
+        plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
+
+def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
+    ''' Testing Phase '''
+    test_itr = tqdm(enumerate(test_loader),\
+            total=len(test_loader.dataset)/args.batch_size)
+    correct_test = 0
+    for batch_idx, (data, target) in test_itr:
+        x, target = data.to(args.device), target.to(args.device)
+        delta  = G(x)
+        delta = delta.view(delta.size(0), nc, h, w)
+        adv_inputs = x + delta
+        adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
+        pred = model(adv_inputs.detach())
+        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+        correct_test += out.eq(target.unsqueeze(1).data).sum()
+
+    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
+            .format(correct_test, len(test_loader.dataset),\
+                100. * correct_test / len(test_loader.dataset)))
+    if args.comet:
+        if not args.mnist:
+            index = np.random.choice(len(x) - 64, 1)[0]
+            clean_image = (x)[index:index+64].detach()
+            adv_image = (x + delta)[index:index+64].detach()
+            delta_image = (delta)[index:index+64].detach()
+        else:
+            clean_image = (x)[0].detach()
+            adv_image = (x + delta)[0].detach()
+            delta_image = (delta)[0].detach()
+        file_base = "adv_images/" + args.namestr + "/"
+        if not os.path.exists(file_base):
+            os.makedirs(file_base)
+        plot_image_to_comet(args,clean_image,file_base+"clean.png",normalize=True)
+        plot_image_to_comet(args,adv_image,file_base+"Adv.png",normalize=True)
+        plot_image_to_comet(args,delta_image,file_base+"delta.png",normalize=True)
+
+def carlini_wagner_loss(args, output, target, scale_const=1):
+    # compute the probability of the label class versus the maximum other
+    target_onehot = torch.zeros(target.size() + (args.classes,))
+    target_onehot = target_onehot.cuda()
+    target_onehot.scatter_(1, target.unsqueeze(1), 1.)
+    target_var = Variable(target_onehot, requires_grad=False)
+    real = (target_var * output).sum(1)
+    confidence = 0
+    other = ((1. - target_var) * output - target_var * 10000.).max(1)[0]
+    # if targeted:
+        # # if targeted, optimize for making the other class most likely
+        # loss1 = torch.clamp(other - real + confidence, min=0.)  # equiv to max(..., 0.)
+    # else:
+        # if non-targeted, optimize for making this class least likely.
+    loss1 = torch.clamp(real - other + confidence, min=0.)  # equiv to max(..., 0.)
+    loss = torch.sum(scale_const * loss1)
+
+    return loss
+
+def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
+        nc=1,h=28,w=28):
+    epsilon = args.epsilon
+    opt = optim.Adam(G.parameters())
+    if args.carlini_loss:
+        misclassify_loss_func = carlini_wagner_loss
+    else:
+        misclassify_loss_func = CE_loss_func
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         train_itr = tqdm(enumerate(train_loader),\
                 total=len(train_loader.dataset)/args.batch_size)
         correct = 0
+        PGD_test_model(args,epoch,test_loader,model,G,nc,h,w)
         for batch_idx, (data, target) in train_itr:
             x, target = data.to(args.device), target.to(args.device)
             for t in range(args.PGD_steps):
-                delta, _ = G(x)
-                delta = delta.view(delta.size(0), 1, 28, 28)
+                delta  = G(x)
+                delta = delta.view(delta.size(0), nc, h, w)
                 # Clipping is equivalent to projecting back onto the l_\infty ball
                 # This technique is known as projected gradient descent (PGD)
                 delta.data.clamp_(-epsilon, epsilon)
-                delta.data = clamp(x.data + delta.data,0.,1.) - x.data
+                delta.data = torch.clamp(x.data + delta.data,-1.,1.) - x.data
                 pred = model(x.detach() + delta)
                 out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-                loss = -nn.CrossEntropyLoss(reduction="sum")(pred, target)
+                loss = misclassify_loss_func(args,pred,target)
                 if args.comet:
                     args.experiment.log_metric("Whitebox CE loss",loss,step=t)
                 opt.zero_grad()
@@ -182,45 +280,71 @@ def white_box_generator(args, train_loader, test_loader, model, G):
                 opt.step()
             correct += out.eq(target.unsqueeze(1).data).sum()
 
+        if args.comet:
+            args.experiment.log_metric("Whitebox CE loss",loss,step=epoch)
+            args.experiment.log_metric("Adv Accuracy",\
+                    100.*correct/len(train_loader.dataset),step=epoch)
+
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
                     loss, correct, len(train_loader.dataset),
                     100. * correct / len(train_loader.dataset)))
 
-    ''' Testing Phase '''
-    test_itr = tqdm(enumerate(test_loader),\
-            total=len(test_loader.dataset)/args.batch_size)
-    correct_test = 0
-    for batch_idx, (data, target) in test_itr:
-        x, target = data.to(args.device), target.to(args.device)
-        for t in range(args.PGD_steps):
-            delta, _ = G(x)
-            delta = delta.view(delta.size(0), 1, 28, 28)
-            # Clipping is equivalent to projecting back onto the l_\infty ball
-            # This technique is known as projected gradient descent (PGD)
-            delta.data.clamp_(-epsilon, epsilon)
-            delta.data = clamp(x.data + delta.data,0.,1.) - x.data
-            pred = model(x.detach() + delta)
-            out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+    return out, delta
 
-        correct_test += out.eq(target.unsqueeze(1).data).sum()
+def L2_white_box_generator(args, train_loader, test_loader, model, G,\
+        nc=1,h=28,w=28):
+    epsilon = args.epsilon
+    opt = optim.Adam(G.parameters())
+    if args.carlini_loss:
+        misclassify_loss_func = carlini_wagner_loss
+    else:
+        misclassify_loss_func = CE_loss_func
 
-    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(test_loader.dataset),\
-                100. * correct_test / len(test_loader.dataset)))
+    ''' Training Phase '''
+    for epoch in range(0,args.attack_epochs):
+        train_itr = tqdm(enumerate(train_loader),\
+                total=len(train_loader.dataset)/args.batch_size)
+        correct = 0
+        L2_test_model(args,epoch,test_loader,model,G,nc,h,w)
+        for batch_idx, (data, target) in train_itr:
+            x, target = data.to(args.device), target.to(args.device)
+            num_unperturbed = 10
+            iter_count = 0
+            loss_perturb = 20
+            loss_misclassify = 10
+            while loss_misclassify > 0 and loss_perturb > 1:
+                delta  = G(x)
+                delta = delta.view(delta.size(0), nc, h, w)
+                adv_inputs = x.detach() + delta
+                adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
+                pred = model(adv_inputs)
+                out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+                loss_misclassify = misclassify_loss_func(args,pred,target) / len(x)
+                loss_perturb = L2_dist(x,adv_inputs) / len(x)
+                loss = loss_misclassify + args.LAMBDA * loss_perturb
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+                iter_count = iter_count + 1
+                num_unperturbed = out.eq(target.unsqueeze(1).data).sum()
+                if iter_count > args.max_iter:
+                    break
+            correct += out.eq(target.unsqueeze(1).data).sum()
 
-    if args.comet:
-        if not args.mnist:
-            clean_image = (image)[0].detach().cpu().numpy().transpose(1,2,0)
-            adv_image = (x + delta)[0].detach().cpu().numpy().transpose(1,2,0)
-            delta_image = (delta)[0].detach().cpu().numpy().transpose(1,2,0)
-        else:
-            clean_image = (image)[0].detach()
-            adv_image = (x + delta)[0].detach()
-            delta_image = (delta)[0].detach()
-        plot_image_to_comet(args,clean_image,"clean.png")
-        plot_image_to_comet(args,adv_image,"Adv.png")
-        plot_image_to_comet(args,delta_image,"delta.png")
+        if args.comet:
+            args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
+            args.experiment.log_metric("Whitebox L2 loss",loss_perturb,step=epoch)
+            args.experiment.log_metric("Whitebox Misclassification loss",\
+                    loss_misclassify,step=epoch)
+            args.experiment.log_metric("Adv Accuracy",\
+                    100.*correct/len(train_loader.dataset),step=epoch)
+
+        print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
+                .format(epoch,\
+                    loss, correct, len(train_loader.dataset),
+                    100. * correct / len(train_loader.dataset)))
+
     return out, delta
 
 def soft_reward(pred, targ):
@@ -251,14 +375,14 @@ def hard_reward(pred, targ):
     pred = F.softmax(pred, dim=1)
     out = pred.max(1, keepdim=True)[1] # get the index of the max log-prob
 
-def loss_func(pred, targ):
+def CE_loss_func(args,pred, targ):
     """
     Want to maximize CE, so return negative since optimizer -> gradient descent
     Args:
         pred: model prediction
         targ: true class, we want to decrease probability of this class
     """
-    loss = -nn.CrossEntropyLoss()(pred, torch.LongTensor([targ]))
+    loss = -nn.CrossEntropyLoss(reduction="sum")(pred, targ)
 
     return loss
 

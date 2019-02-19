@@ -16,6 +16,14 @@ from models import Net
 from cnn_models import *
 import ipdb
 
+def reduce_sum(x, keepdim=True):
+    for a in reversed(range(1, x.dim())):
+        x = x.sum(a, keepdim=keepdim)
+    return x.squeeze().sum()
+
+def L2_dist(x, y):
+    return reduce_sum((x - y)**2)
+
 class Normalize(nn.Module):
     """
     Normalize an image as part of a torch nn.Module
@@ -46,9 +54,11 @@ def display_tensor(tensor):
     plt.imshow((tensor)[0].detach().numpy().transpose(1,2,0))
     plt.show()
 
-def plot_image_to_comet(args,image,name):
-    save = to_img(image.cpu().data)
-    save_image(save, name)
+def plot_image_to_comet(args,image,name,normalize):
+    batch_size,nc,h,w = image.shape
+    if args.mnist:
+        image = to_img(image.cpu().data,nc,h,w)
+    save_image(image, name, normalize=normalize)
     args.experiment.log_image(name,overwrite=False)
 
 def load_imagenet_classes():
@@ -115,9 +125,11 @@ def load_unk_model(args):
         else:
             model = main_mnist(args)
     if args.cifar:
-        if os.path.exists("cifar_densenet121.pt"):
-            model = DenseNet121().to(args.device)
-            model.load_state_dict(torch.load("cifar_densenet121.pt"))
+        if os.path.exists("cifar_VGG16.pt"):
+            # model = DenseNet121().to(args.device)
+            model = VGG().to(args.device)
+            model = nn.DataParallel(model)
+            model.load_state_dict(torch.load("cifar_VGG16.pt"))
             model.eval()
         else:
             model = main_cifar(args)
@@ -149,7 +161,6 @@ def main_cifar(args):
     for init_func, name, epochs in architectures:
         print("Training %s" %(name))
         model = init_func().to(args.device)
-        # model = densenet_cifar().to(args.device)
         model = nn.DataParallel(model)
         optimizer = optim.Adam(model.parameters(),lr=1e-4)
         train_loader, test_loader = load_cifar(args,normalize=True)
@@ -221,11 +232,13 @@ def load_cifar(args,normalize=False):
         transforms.RandomHorizontalFlip(),
 	transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        # transforms.Normalize((-1, -1, -1), (2, 2, 2)),
     ])
 
     transform_test = transforms.Compose([
 	transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        # transforms.Normalize((-1, -1, -1), (2, 2, 2)),
     ])
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
@@ -235,7 +248,7 @@ def load_cifar(args,normalize=False):
 
     testset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                       download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset,batch_size=args.batch_size,
+    testloader = torch.utils.data.DataLoader(testset,batch_size=args.test_batch_size,
                                                  shuffle=False, num_workers=8)
     return trainloader, testloader
 
@@ -262,9 +275,9 @@ def load_mnist(normalize=True):
                 batch_size=1024, shuffle=True)
     return trainloader, testloader
 
-def to_img(x):
+def to_img(x,nc,h,w):
     x = x.clamp(0, 1)
-    x = x.view(x.size(0), 1, 28, 28)
+    x = x.view(x.size(0), nc, h, w)
     return x
 
 def freeze_model(model):

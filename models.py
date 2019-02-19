@@ -6,6 +6,7 @@ from torch.autograd import Variable
 from torch.distributions.multivariate_normal import MultivariateNormal
 import ipdb
 from torch.distributions import Normal
+from flows import *
 
 class Bottleneck(nn.Module):
     def __init__(self, in_planes, growth_rate):
@@ -430,7 +431,8 @@ class Generator(nn.Module):
         return delta, logvar
 
 class ConvGenerator(nn.Module):
-    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_classes=10, latent=50):
+    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5,\
+            num_classes=10, latent=50, flows=None):
         """
         A modified VAE. Latent is Gaussian (0, sigma) of dimension latent.
         Decode latent to a noise vector of `input_size`,
@@ -473,6 +475,7 @@ class ConvGenerator(nn.Module):
         self.linear_2 = nn.Linear(num_planes, latent)
         ngf = 64
         self.latent = latent
+        self.flows = flows
         self.decoder = nn.Sequential(
             # input is Z, going into a convolution
             nn.ConvTranspose2d(latent, ngf * 8, 4, 1, 0, bias=False),
@@ -530,4 +533,58 @@ class ConvGenerator(nn.Module):
         mu,logvar = self.encode(out)
         z = self.reparameterize(mu,logvar)
         delta = self.decode(z)
-        return delta, logvar
+        return delta#, logvar
+
+class DCGAN(nn.Module):
+    def __init__(self, num_channels=3, ngf=100):
+        super(DCGAN, self).__init__()
+        """
+        Initialize a DCGAN. Perturbations from the GAN are added to the inputs to
+        create adversarial attacks.
+        - num_channels is the number of channels in the input
+        - ngf is size of the conv layers
+        """
+        self.generator = nn.Sequential(
+                # input is (nc) x 32 x 32
+                nn.Conv2d(num_channels, ngf, 3, 1, 1, bias=False),
+                nn.LeakyReLU(0.2, inplace=True),
+                #nn.Dropout2d(),
+                # state size. 48 x 32 x 32
+                nn.Conv2d(ngf, ngf, 3, 1, 1, bias=False),
+                nn.LeakyReLU(0.2, inplace=True),
+                #nn.Dropout2d(),
+                # state size. 48 x 32 x 32
+                nn.Conv2d(ngf, ngf, 3, 1, 1, bias=False),
+                nn.LeakyReLU(0.2, inplace=True),
+                #nn.Dropout(),
+                # state size. 48 x 32 x 32
+                nn.Conv2d(ngf, ngf, 3, 1, 1, bias=False),
+                nn.LeakyReLU(0.2, inplace=True),
+                #nn.Dropout(),
+                # state size. 48 x 32 x 32
+                nn.Conv2d(ngf, ngf, 3, 1, 1, bias=False),
+                nn.LeakyReLU(0.2, inplace=True),
+                # state size. 48 x 32 x 32
+                nn.Conv2d(ngf, ngf, 3, 1, 1, bias=False),
+                nn.LeakyReLU(0.2, inplace=True),
+                # state size. 48 x 32 x 32
+                nn.Conv2d(ngf, ngf, 1, 1, 0, bias=False),
+                nn.LeakyReLU(0.2, inplace=True),
+                # state size. 3 x 32 x 32
+                nn.Conv2d(ngf, num_channels, 1, 1, 0, bias=False),
+                nn.Tanh()
+        )
+        # self.cuda = torch.cuda.is_available()
+
+        # if self.cuda:
+            # self.generator.cuda()
+            # self.generator = torch.nn.DataParallel(self.generator, device_ids=range(torch.cuda.device_count()))
+
+        def forward(self,inputs):
+            return self.generator(inputs), inputs
+
+        def save(self, fn):
+            torch.save(self.generator.state_dict(), fn)
+
+        def load(self, fn):
+            self.generator.load_state_dict(torch.load(fn))
