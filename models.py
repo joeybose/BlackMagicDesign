@@ -432,7 +432,7 @@ class Generator(nn.Module):
 
 class ConvGenerator(nn.Module):
     def __init__(self, block, nblocks, growth_rate=12, reduction=0.5,\
-            num_classes=10, latent=50, flows=None):
+            num_classes=10, latent=50, flows=None, use_flow=False):
         """
         A modified VAE. Latent is Gaussian (0, sigma) of dimension latent.
         Decode latent to a noise vector of `input_size`,
@@ -475,7 +475,23 @@ class ConvGenerator(nn.Module):
         self.linear_2 = nn.Linear(num_planes, latent)
         ngf = 64
         self.latent = latent
-        self.flows = flows
+        self.use_flows = use_flow
+        # Flow parameters
+        if self.use_flows:
+            self.flow = flows
+            self.num_flows = 30
+            self.num_flows = self.num_flows
+            self.log_det_j = 0.
+            # Amortized flow parameters
+            self.amor_u = nn.Linear(num_planes, self.num_flows * self.latent)
+            self.amor_w = nn.Linear(num_planes, self.num_flows * self.latent)
+            self.amor_b = nn.Linear(num_planes, self.num_flows)
+
+            # Normalizing flow layers
+            for k in range(self.num_flows):
+                flow_k = self.flow()
+                self.add_module('flow_' + str(k), flow_k)
+
         self.decoder = nn.Sequential(
             # input is Z, going into a convolution
             nn.ConvTranspose2d(latent, ngf * 8, 4, 1, 0, bias=False),
@@ -505,11 +521,18 @@ class ConvGenerator(nn.Module):
         return nn.Sequential(*layers)
 
     def encode(self, out):
+        batch_size = out.size(0)
         out_1 = self.linear_1(out)
         out_2 = self.linear_2(out)
         h1 = F.relu(out_1)
         h2 = F.relu(out_2)
-        return h1,h2
+        u,w,b = None,None,None
+        if self.use_flows:
+            # return amortized u an w for all flows
+            u = self.amor_u(out).view(batch_size, self.num_flows, self.latent, 1)
+            w = self.amor_w(out).view(batch_size, self.num_flows, 1, self.latent)
+            b = self.amor_b(out).view(batch_size, self.num_flows, 1, 1)
+        return h1,h2,u,w,b
 
     def reparameterize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
@@ -530,10 +553,20 @@ class ConvGenerator(nn.Module):
         out = self.dense4(out)
         out = F.avg_pool2d(F.relu(self.bn(out)), 4)
         out = out.view(out.size(0), -1)
-        mu,logvar = self.encode(out)
+        mu,logvar,u,w,b  = self.encode(out)
         z = self.reparameterize(mu,logvar)
+        # Construct more expressive posterior with NF
+        for k in range(self.num_flows):
+            flow_k = getattr(self, 'flow_' + str(k))
+            z_k, log_det_jacobian = flow_k(z, u[:, k, :, :], w[:, k, :, :], b[:, k, :, :])
+            z = z_k
+            self.log_det_j += log_det_jacobian
+
         delta = self.decode(z)
-        return delta#, logvar
+        kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        kl_div = kl_div - self.log_det_j
+        kl_div = kl_div / x.size(0)  # mean over batch
+        return delta, kl_div
 
 class DCGAN(nn.Module):
     def __init__(self, num_channels=3, ngf=100):
@@ -574,11 +607,6 @@ class DCGAN(nn.Module):
                 nn.Conv2d(ngf, num_channels, 1, 1, 0, bias=False),
                 nn.Tanh()
         )
-        # self.cuda = torch.cuda.is_available()
-
-        # if self.cuda:
-            # self.generator.cuda()
-            # self.generator = torch.nn.DataParallel(self.generator, device_ids=range(torch.cuda.device_count()))
 
         def forward(self,inputs):
             return self.generator(inputs), inputs
