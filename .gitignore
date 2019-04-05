@@ -3,6 +3,7 @@ tags
 notes.md
 data/
 __pycache__/
+BMD_text/saved_models/*
 *.pt
 settings.json
 *.txt
