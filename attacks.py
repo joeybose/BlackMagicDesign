@@ -117,7 +117,7 @@ def single_white_box_generator(args, image, target, model, G):
 
     print("Target is %d" %(target))
     for t in range(args.PGD_steps):
-        delta, _ = G(x)
+        delta, kl_div = G(x)
         delta = delta.view(delta.size(0), 1, 28, 28)
         delta.data.clamp_(-epsilon, epsilon)
         delta.data = clamp(x.data + delta.data,0.,1.) - x.data
@@ -163,7 +163,10 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
     for batch_idx, (data, target) in test_itr:
         x, target = data.to(args.device), target.to(args.device)
         # for t in range(args.PGD_steps):
-        delta  = G(x)
+        if not args.vanilla_G:
+            delta, kl_div  = G(x)
+        else:
+            delta = G(x)
         delta = delta.view(delta.size(0), nc, h, w)
         # Clipping is equivalent to projecting back onto the l_\infty ball
         # This technique is known as projected gradient descent (PGD)
@@ -198,7 +201,10 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
     correct_test = 0
     for batch_idx, (data, target) in test_itr:
         x, target = data.to(args.device), target.to(args.device)
-        delta  = G(x)
+        if not args.vanilla_G:
+            delta, kl_div  = G(x)
+        else:
+            delta = G(x)
         delta = delta.view(delta.size(0), nc, h, w)
         adv_inputs = x + delta
         adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
@@ -241,14 +247,14 @@ def carlini_wagner_loss(args, output, target, scale_const=1):
     # else:
         # if non-targeted, optimize for making this class least likely.
     loss1 = torch.clamp(real - other + confidence, min=0.)  # equiv to max(..., 0.)
-    loss = torch.sum(scale_const * loss1)
+    loss = torch.mean(scale_const * loss1)
 
     return loss
 
 def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
         nc=1,h=28,w=28):
     epsilon = args.epsilon
-    opt = optim.Adam(G.parameters())
+    opt = optim.Adam(G.parameters(),lr=1e-4)
     if args.carlini_loss:
         misclassify_loss_func = carlini_wagner_loss
     else:
@@ -262,7 +268,10 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
         for batch_idx, (data, target) in train_itr:
             x, target = data.to(args.device), target.to(args.device)
             for t in range(args.PGD_steps):
-                delta  = G(x)
+                if not args.vanilla_G:
+                    delta, kl_div  = G(x)
+                else:
+                    delta = G(x)
                 delta = delta.view(delta.size(0), nc, h, w)
                 # Clipping is equivalent to projecting back onto the l_\infty ball
                 # This technique is known as projected gradient descent (PGD)
@@ -270,7 +279,7 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
                 delta.data = torch.clamp(x.data + delta.data,-1.,1.) - x.data
                 pred = model(x.detach() + delta)
                 out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-                loss = misclassify_loss_func(args,pred,target)
+                loss = misclassify_loss_func(args,pred,target) + kl_div.sum()
                 if args.comet:
                     args.experiment.log_metric("Whitebox CE loss",loss,step=t)
                 opt.zero_grad()
@@ -314,7 +323,11 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
             loss_perturb = 20
             loss_misclassify = 10
             while loss_misclassify > 0 and loss_perturb > 1:
-                delta  = G(x)
+                if not args.vanilla_G:
+                    delta, kl_div  = G(x)
+                    kl_div = kl_div.sum() / len(x)
+                else:
+                    delta = G(x)
                 delta = delta.view(delta.size(0), nc, h, w)
                 adv_inputs = x.detach() + delta
                 adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
@@ -322,7 +335,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
                 out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
                 loss_misclassify = misclassify_loss_func(args,pred,target) / len(x)
                 loss_perturb = L2_dist(x,adv_inputs) / len(x)
-                loss = loss_misclassify + args.LAMBDA * loss_perturb
+                loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
@@ -383,6 +396,7 @@ def CE_loss_func(args,pred, targ):
         targ: true class, we want to decrease probability of this class
     """
     loss = -nn.CrossEntropyLoss(reduction="sum")(pred, targ)
+    loss = loss / len(targ)
 
     return loss
 

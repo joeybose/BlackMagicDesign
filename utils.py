@@ -118,18 +118,18 @@ def load_unk_model(args):
     Load an unknown model. Used for convenience to easily swap unk model
     """
     if args.mnist:
-        if os.path.exists("mnist_cnn.pt"):
+        if os.path.exists("saved_models/mnist_cnn.pt"):
             model = Net().to(args.device)
-            model.load_state_dict(torch.load("mnist_cnn.pt"))
+            model.load_state_dict(torch.load("saved_models/mnist_cnn.pt"))
             model.eval()
         else:
             model = main_mnist(args)
     if args.cifar:
-        if os.path.exists("cifar_VGG16.pt"):
+        if os.path.exists("saved_models/cifar_VGG16.pt"):
             # model = DenseNet121().to(args.device)
             model = VGG().to(args.device)
             model = nn.DataParallel(model)
-            model.load_state_dict(torch.load("cifar_VGG16.pt"))
+            model.load_state_dict(torch.load("saved_models/cifar_VGG16.pt"))
             model.eval()
         else:
             model = main_cifar(args)
@@ -147,7 +147,7 @@ def main_mnist(args):
         train_classifier(args, model, args.device, train_loader, optimizer, epoch)
         test_classifier(args, model, args.device, test_loader)
 
-    torch.save(model.state_dict(),"mnist_cnn.pt")
+    torch.save(model.state_dict(),"saved_models/mnist_cnn.pt")
     return model
 
 def main_cifar(args):

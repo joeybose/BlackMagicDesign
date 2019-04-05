@@ -17,14 +17,15 @@ from torch import optim
 from torch.autograd import Variable
 import utils, models, attacks
 from utils import to_cuda
+import flows
 from torch.nn.utils import clip_grad_norm_
 
 def train_mnist_vae(args):
     model = to_cuda(MnistVAE())
-    cond = True if (os.path.exists("mnist_enc.pt") and os.path.exists("mnist_dec.pt") \
-            and os.path.exists("mnist_vae.pt")) else False
+    cond = True if (os.path.exists("saved_models/mnist_enc.pt") and os.path.exists("saved_models/mnist_dec.pt") \
+            and os.path.exists("saved_models/mnist_vae.pt")) else False
     if cond:
-        model.load_state_dict(torch.load("mnist_vae.pt"))
+        model.load_state_dict(torch.load("saved_models/mnist_vae.pt"))
         # model.module.load("mnist_enc.pt","mnist_dec.pt")
         encoder = model.module.encoder
         decoder = model.module.decoder
@@ -66,8 +67,8 @@ def train_mnist_vae(args):
                 if args.comet:
                     args.experiment.log_image(\
                         'results/image_{}.png'.format(epoch),overwrite=False)
-        model.module.save("mnist_enc.pt","mnist_dec.pt")
-        torch.save(model.state_dict(),"mnist_vae.pt")
+        model.module.save("saved_models/mnist_enc.pt","saved_models/mnist_dec.pt")
+        torch.save(model.state_dict(),"saved_models/mnist_vae.pt")
         encoder = model.module.encoder
         decoder = model.module.decoder
 
@@ -75,10 +76,10 @@ def train_mnist_vae(args):
 
 def train_mnist_ae(args):
     model = to_cuda(Mnistautoencoder())
-    cond = True if (os.path.exists("mnist_aenc.pt") and os.path.exists("mnist_adec.pt") \
+    cond = True if (os.path.exists("saved_models/mnist_aenc.pt") and os.path.exists("saved_models/mnist_adec.pt") \
             and os.path.exists("mnist_ae.pt")) else False
     if cond:
-        model.load_state_dict(torch.load("mnist_ae.pt"))
+        model.load_state_dict(torch.load("saved_models/mnist_ae.pt"))
         # model.module.load("mnist_enc.pt","mnist_dec.pt")
         encoder = model.module.encoder
         decoder = model.module.decoder
@@ -110,8 +111,8 @@ def train_mnist_ae(args):
 
             if args.comet:
                 args.experiment.log_metric("MNIST AE loss",loss,step=epoch)
-        model.module.save("mnist_aenc.pt","mnist_adec.pt")
-        torch.save(model.state_dict(),"mnist_ae.pt")
+        model.module.save("mnist_aenc.pt","saved_models/mnist_adec.pt")
+        torch.save(model.state_dict(),"saved_models/mnist_ae.pt")
         encoder = model.module.encoder
         decoder = model.module.decoder
     return encoder, decoder, model
@@ -154,6 +155,11 @@ def main(args):
     else:
         encoder, decoder, ae = None, None, None
 
+    # Add A Flow
+    norm_flow = None
+    if args.use_flow:
+        # norm_flow = flows.NormalizingFlow(30, args.latent).to(args.device)
+        norm_flow = flows.Planar
     # Test white box
     if args.white:
         # Choose Attack Function
@@ -170,7 +176,8 @@ def main(args):
                 G = models.DCGAN().to(args.device)
                 G = nn.DataParallel(G.generator)
             else:
-                G = models.ConvGenerator(models.Bottleneck, [6,12,24,16], growth_rate=12).to(args.device)
+                G = models.ConvGenerator(models.Bottleneck,[6,12,24,16],\
+                        growth_rate=12,flows=norm_flow,use_flow=args.use_flow).to(args.device)
                 G = nn.DataParallel(G)
             nc,h,w = 3,32,32
 
@@ -219,6 +226,9 @@ if __name__ == '__main__':
     parser.add_argument('--reward', default='soft', const='soft',
                     nargs='?', choices=['soft', 'hard'],
                     help='Reward for grad estimator (default: %(default)s)')
+    parser.add_argument('--flow_type', default='planar', const='soft',
+                    nargs='?', choices=['planar', 'radial'],
+                    help='Type of Normalizing Flow (default: %(default)s)')
     # Training
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
@@ -258,6 +268,8 @@ if __name__ == '__main__':
                         help='Use CIFAR-10 as Dataset')
     parser.add_argument('--white', default=False, action='store_true',
                         help='White Box test')
+    parser.add_argument('--use_flow', default=False, action='store_true',
+                        help='Add A NF to Generator')
     parser.add_argument('--carlini_loss', default=False, action='store_true',
                         help='Use CW loss function')
     parser.add_argument('--no_pgd_optim', default=False, action='store_true',
