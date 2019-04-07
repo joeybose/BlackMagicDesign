@@ -8,3 +8,9 @@ BMD_text/saved_models/*
 settings.json
 *.txt
 
+./BMD_text/saved_models/cnn_.pt
+./BMD_text/saved_models/lstm_.pt
+./BMD_text/saved_models/lstm.pt
+./BMD_text/saved_models/bilstm.pt
+./BMD_text/saved_models/bilstm_.pt
+./BMD_text/.vector_cache/glove.6B.300d.txt
