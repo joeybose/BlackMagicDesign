@@ -28,6 +28,8 @@ def setup(opt):
 
     if opt.model == 'lstm':
         model = LSTMClassifier(opt)
+    if opt.model == 'lstm_emb_input':
+        model = LSTMClassifierEmb(opt)
     elif opt.model == 'baisc_cnn' or opt.model == "cnn":
         model = BasicCNN1D(opt)
     elif opt.model == 'baisc_cnn_2d' :

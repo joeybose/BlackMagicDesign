@@ -30,16 +30,19 @@ def main(args):
     else:
         train_loader,test_loader = utils.get_data(args)
 
-    # The unknown model to attack
+    # The unknown model to attack, specified in args.model
     unk_model = utils.load_unk_model(args)
 
     # Try Whitebox Untargeted first
     if args.debug:
         ipdb.set_trace()
 
+    # TODO: do we need this alphabet?
     ntokens = len(args.alphabet)
     inv_alphabet = {v: k for k, v in args.alphabet.items()}
     args.inv_alph = inv_alphabet
+
+    # Load model which will produce the attack
     if args.convolution_enc:
         G = Seq2SeqCAE(emsize=args.emsize,
                                  glove_weights=args.embeddings,
@@ -64,9 +67,11 @@ def main(args):
                               hidden_init=args.hidden_init,
                               dropout=args.dropout)
 
-    # Add A Flow
+    # Efficient compute
     G = G.to(args.device)
     G = nn.DataParallel(G)
+
+    # Maybe Add A Flow
     norm_flow = None
     if args.use_flow:
         # norm_flow = flows.NormalizingFlow(30, args.latent).to(args.device)
@@ -90,7 +95,8 @@ def main(args):
                     test_loader, unk_model, G)
 
     # Blackbox Attack model
-    ipdb.set_trace()
+    if args.debug:
+        ipdb.set_trace()
     model = models.GaussianPolicy(args.input_size, 400,
         args.latent_size,decode=False).to(args.device)
 
@@ -217,7 +223,7 @@ if __name__ == '__main__':
                     help='max_seq_len')
     parser.add_argument('--gamma', type=float, default=0.95,
                     help='Discount Factor')
-    parser.add_argument('--model', type=str, default="lstm",
+    parser.add_argument('--model', type=str, default="lstm_emb_input",
                     help='classification model name')
     parser.add_argument('--hidden_dim', type=int, default=128,
                     help='hidden_dim')

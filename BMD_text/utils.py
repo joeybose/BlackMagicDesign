@@ -14,6 +14,7 @@ import os
 import models
 import ipdb
 
+device = torch.device("cuda" if use_cuda else "cpu")
 def to_gpu(gpu, var):
     if gpu:
         return var.cuda()
@@ -35,8 +36,7 @@ def load_unk_model(args):
     args.lstm_layers=2
     model=models.setup(args)
     model.load_state_dict(torch.load(args.model_path))
-    if torch.cuda.is_available():
-        model.cuda()
+    model.to(device)
     # model.eval()
     return model
 
