@@ -341,6 +341,14 @@ def train_ae(args, train_loader, G):
                     accuracy,step=batch_idx)
 
 def L2_white_box_generator(args, train_loader, test_loader, model, G):
+    """
+    Args:
+        args         : ArgumentParser args
+        train_loader : (torchtext obj) data to train
+        test_loader  : (torchtext obj) data to test
+        model        : the model you are attacking
+        G            : the model which generates adversarial samples for `model`
+    """
     epsilon = args.epsilon
     opt = optim.Adam(G.parameters())
     criterion_ce = nn.CrossEntropyLoss()
@@ -350,7 +358,8 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         misclassify_loss_func = reinforce_seq_loss
 
     ''' Burn in VAE '''
-    train_ae(args, train_loader, G)
+    if args.train_ae:
+        train_ae(args, train_loader, G)
 
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
@@ -378,9 +387,10 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
                 recon_loss = criterion_ce(masked_output, masked_target)
 
-                # Sample from Decoder
+                # Sample Adversarial samples from Decoder
                 hidden  = G(x,encode_only=True)
                 adv_out, fake_logits = G.module.generate(hidden,args.max_seq_len)
+                # Evaluate target model with adversarial samples
                 logits, preds = model(adv_out.detach(),return_logits=True)
                 cumulative_rewards = get_cumulative_rewards(logits,target,args,is_already_reward=True)
                 loss_misclassify = misclassify_loss_func(cumulative_rewards,

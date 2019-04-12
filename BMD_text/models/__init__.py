@@ -10,7 +10,7 @@ import numpy as np
 
 
 
-from .LSTM import LSTMClassifier
+from .LSTM import LSTMClassifier, LSTMClassifierEmb
 from .CNNBasic import BasicCNN1D,BasicCNN2D
 from .CNNKim import KIMCNN1D,KIMCNN2D
 from .CNNMultiLayer import MultiLayerCNN

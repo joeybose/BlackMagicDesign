@@ -67,7 +67,7 @@ class LSTMClassifierEmb(nn.Module):
     # embedding_dim, hidden_dim, vocab_size, label_size, batch_size, use_gpu
     def __init__(self,opt):
         self.opt=opt
-        super(LSTMClassifier, self).__init__()
+        super(LSTMClassifierEmb, self).__init__()
         self.name = "LSTMClassifier"
         self.hidden_dim = opt.hidden_dim
         self.batch_size = opt.batch_size
@@ -96,7 +96,7 @@ class LSTMClassifierEmb(nn.Module):
     def forward(self, embeds, return_logits=False):
         """
         Args:
-            embeds: expect batch X 200 X 3000
+            embeds: expect batch X 200 X 300
         """
         # embeds = self.word_embeddings(sentence) #64x200x300
 
