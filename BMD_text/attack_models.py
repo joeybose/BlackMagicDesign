@@ -308,60 +308,42 @@ class Seq2Seq(nn.Module):
         # TODO: isn't `lengths` the same as `maxlen` below?
         lengths = torch.LongTensor([len(seq) for seq in indices]).cuda()
         lengths = lengths.cpu().numpy()
-        if not generator:
-            batch_size, maxlen = indices.size()
+        batch_size, maxlen = indices.size()
 
-            # below: last hidden state, KL, input embeddings
-            hidden, KL, embeddings = self.encode(indices, lengths, noise)
+        # below: last hidden state, KL, input embeddings
+        hidden, KL, embeddings = self.encode(indices, lengths, noise)
 
-            if encode_only:
-                return hidden
+        if encode_only:
+            return hidden
 
-            if hidden.requires_grad:
-                hidden.register_hook(self.store_grad_norm)
+        if hidden.requires_grad:
+            hidden.register_hook(self.store_grad_norm)
 
-            # Give the decoder the same input as the encoder
-            # Decode and return decoder hidden states
-            dec_output, dec_lengths = self.decode(hidden, batch_size, maxlen,
-                                  indices=indices, lengths=lengths)
-
-            # Project to softmax or embedding noise
-            # reshape to batch_size*maxlen x nhidden before linear over vocab
-            if project_to_emb:
-                decoded = self.linear_emb(dec_output.contiguous().view(-1, self.nhidden))
-                decoded = decoded.view(batch_size, maxlen, self.emsize)
-                mask_dim = self.emsize
-            else:
-                decoded = self.linear(dec_output.contiguous().view(-1, self.nhidden))
-                decoded = decoded.view(batch_size, maxlen, self.ntokens)
-                mask_dim = self.ntokens
-
-            mask = indices.gt(0)
-            masked_target = indices.masked_select(mask)
-            # examples x ntokens
-            output_mask = mask.unsqueeze(1).expand(mask.size(0),mask_dim,mask.size(1))
-            output_mask = output_mask.permute(0,2,1).view(-1,mask_dim)
-            flattened_output = decoded.view(-1, mask_dim)
-            masked_output = flattened_output.masked_select(output_mask).view(-1, mask_dim)
-        else:
-            batch_size, maxlen = indices.size()
-            self.embedding.weight.data[0].fill_(0)
-            self.embedding_decoder.weight.data[0].fill_(0)
-            hidden, KL = self.encode(indices, lengths, noise)
-            if encode_only:
-                return hidden
-
-            if hidden.requires_grad:
-                hidden.register_hook(self.store_grad_norm)
-
-            z_hat = inverter(hidden)
-            c_hat = generator(z_hat)
-
-            decoded = self.decode(c_hat, batch_size, maxlen,
+        # Give the decoder the same input as the encoder
+        # Decode and return decoder hidden states
+        dec_output, dec_lengths = self.decode(hidden, batch_size, maxlen,
                               indices=indices, lengths=lengths)
-            decoded = F.log_softmax(decoded,dim=2)
 
-        return masked_output, masked_target, KL
+        # Project to softmax or embedding noise
+        # reshape to batch_size*maxlen x nhidden before linear over vocab
+        if project_to_emb:
+            decoded = self.linear_emb(dec_output.contiguous().view(-1, self.nhidden))
+            decoded = decoded.view(batch_size, maxlen, self.emsize)
+            mask_dim = self.emsize
+        else:
+            decoded = self.linear(dec_output.contiguous().view(-1, self.nhidden))
+            decoded = decoded.view(batch_size, maxlen, self.ntokens)
+            mask_dim = self.ntokens
+
+        # mask = indices.gt(0)
+        # masked_target = indices.masked_select(mask)
+        # # examples x ntokens
+        # output_mask = mask.unsqueeze(1).expand(mask.size(0),mask_dim,mask.size(1))
+        # output_mask = output_mask.permute(0,2,1).view(-1,mask_dim)
+        # flattened_output = decoded.view(-1, mask_dim)
+        # masked_output = flattened_output.masked_select(output_mask).view(-1, mask_dim)
+        # return masked_output, masked_target, KL, embeddings
+        return decoded, KL, embeddings
 
     def reparameterize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()

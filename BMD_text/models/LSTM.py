@@ -37,8 +37,11 @@ class LSTMClassifier(nn.Module):
             c0 = Variable(torch.zeros(1,batch_size, self.hidden_dim))
         return (h0, c0)
 
-    def forward(self, sentence, return_logits=False):
-        embeds = self.word_embeddings(sentence) #64x200x300
+    def forward(self, sentence, return_logits=False,use_embed=False):
+        if not use_embed:
+            embeds = self.word_embeddings(sentence) #64x200x300
+        else:
+            embeds = sentence
 
 #        x = embeds.view(sentence.size()[1], self.batch_size, -1)
         x=embeds.permute(1,0,2) #200x64x300

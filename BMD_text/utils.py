@@ -7,6 +7,7 @@ from torchtext import datasets
 from torchtext.vocab import Vectors, GloVe, CharNGram, FastText
 import numpy as np
 from functools import wraps
+import torch.optim as optim
 import time
 import sys
 import logging
@@ -21,6 +22,14 @@ def to_gpu(gpu, var):
         return var.cuda()
     return var
 
+def reduce_sum(x, keepdim=True):
+    for a in reversed(range(1, x.dim())):
+        x = x.sum(a, keepdim=keepdim)
+    return x.squeeze().sum()
+
+def L2_dist(x, y):
+    return reduce_sum((x - y)**2)
+
 def decode_to_natural_lang(sequence,args):
     sentence_list = []
     for token in sequence:
@@ -30,7 +39,70 @@ def decode_to_natural_lang(sequence,args):
     print(sentence)
     return sentence
 
-def load_unk_model(args):
+def evaluation(model,test_iter,from_torchtext=True):
+    model.eval()
+    accuracy=[]
+#    batch= next(iter(test_iter))
+    correct_test = 0
+    for index,batch in enumerate( test_iter):
+        text = batch.text[0] if from_torchtext else batch.text
+        predicted = model(text)
+        prob, idx = torch.max(F.log_softmax(predicted,dim=1), 1)
+        percision=(idx== batch.label).float().mean()
+        correct_test += idx.eq(batch.label.data).sum()
+
+        if torch.cuda.is_available():
+            accuracy.append(percision.data.item() )
+        else:
+            accuracy.append(percision.data.numpy()[0] )
+    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
+            .format(correct_test, 25000,\
+                100. * correct_test / 25000))
+    model.train()
+    return np.mean(accuracy)
+
+def train_unk_model(args,model,train_itr,test_itr):
+    loss_fun = F.cross_entropy
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+                           lr=2e-5, weight_decay=1e-3)
+    optimizer.zero_grad()
+    for i in range(10):
+        accuracy = []
+        from_torchtext = False
+        for epoch,batch in enumerate(train_itr):
+            start= time.time()
+
+            text = batch.text[0] if from_torchtext else batch.text
+            predicted = model(text)
+
+            loss= loss_fun(predicted,batch.label)
+
+            # optimizer.zero_grad()
+            loss.backward()
+            clip_gradient(optimizer, 1e-1)
+            prob, idx = torch.max(F.log_softmax(predicted,dim=1), 1)
+            percision=(idx== batch.label).float().mean()
+
+            if torch.cuda.is_available():
+                accuracy.append(percision.data.item() )
+            else:
+                accuracy.append(percision.data.numpy()[0] )
+            optimizer.step()
+            if epoch% 1000==0:
+                if  torch.cuda.is_available():
+                    print("%d iteration %d epoch with loss : %.5f in %.4f seconds" % (i,epoch,loss.cpu().item(),time.time()-start))
+                else:
+                    print("%d iteration %d epoch with loss : %.5f in %.4f seconds" % (i,epoch,loss.data.numpy()[0],time.time()-start))
+
+        percision=evaluation(model,test_itr,False)
+        train_acc =  np.mean(accuracy)
+        print("%d iteration with Train Acc %.4f" % (i,train_acc))
+        print("%d iteration with Test Acc %.4f" % (i,percision))
+        fn = args.model+args.namestr+'.pt'
+        torch.save(model.state_dict(), fn)
+    return model
+
+def load_unk_model(args,train_itr,test_itr):
     """
     Load an unknown model. Used for convenience to easily swap unk model
     """
@@ -38,6 +110,7 @@ def load_unk_model(args):
     model=models.setup(args)
     model.load_state_dict(torch.load(args.model_path))
     model.to(device)
+    # model = train_unk_model(args,model,train_itr,test_itr)
     # model.eval()
     return model
 
