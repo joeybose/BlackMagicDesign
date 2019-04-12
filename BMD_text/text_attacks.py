@@ -385,6 +385,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 else:
                     output = G(x)
 
+                # TODO: For embeddings, this loss doesn't make sense
                 recon_loss = criterion_ce(masked_output, masked_target)
 
                 # Sample Adversarial samples from Decoder
