@@ -199,18 +199,23 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
 def evaluation(model,test_iter,from_torchtext=False):
     model.eval()
     accuracy=[]
+    correct_test = 0
     for index,batch in enumerate( test_iter):
         text = batch.text[0] if from_torchtext else batch.text
         predicted = model(text)
         prob, idx = torch.max(F.log_softmax(predicted,dim=1), 1)
         percision=(idx== batch.label).float().mean()
+        correct_test += idx.eq(batch.label.data).sum()
 
         if torch.cuda.is_available():
             accuracy.append(percision.data.item() )
         else:
             accuracy.append(percision.data.numpy()[0] )
-    ipdb.set_trace()
-    print("Target Model accuracy is %d" %(np.mean(accuracy)))
+    print('\n No Adversarial Noise Test set: Accuracy: {}/{} ({:.0f}%)\n'\
+            .format(correct_test, 25000,\
+                100. * correct_test / 25000))
+    model.train()
+    return np.mean(accuracy)
 
 def L2_test_model(args,epoch,test_loader,model,G):
     ''' Testing Phase '''
@@ -380,15 +385,16 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
     ''' Burn in VAE '''
     if args.train_ae:
+        print("Doing Burn in VAE")
         train_ae(args, train_loader, G)
 
+    evaluation(model,test_loader)
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         train_itr = tqdm(enumerate(train_loader),\
                 total=len(train_loader.dataset)/args.batch_size)
         correct = 0
         ntokens = len(args.alphabet)
-        evaluation(model,test_loader)
         L2_test_model(args,epoch,test_loader,model,G)
         for batch_idx, batch in enumerate(train_itr):
             x, target = batch[1].text, batch[1].label
