@@ -65,7 +65,8 @@ def train_unk_model(args,model,train_itr,test_itr):
     loss_fun = F.cross_entropy
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
                            lr=2e-5, weight_decay=1e-3)
-    optimizer.zero_grad()
+    # optimizer = optim.Adam(model.parameters(), weight_decay=1e-3)
+    # optimizer.zero_grad()
     for i in range(10):
         accuracy = []
         from_torchtext = False
@@ -78,6 +79,7 @@ def train_unk_model(args,model,train_itr,test_itr):
             loss= loss_fun(predicted,batch.label)
 
             # optimizer.zero_grad()
+            optimizer.zero_grad()
             loss.backward()
             clip_gradient(optimizer, 1e-1)
             prob, idx = torch.max(F.log_softmax(predicted,dim=1), 1)

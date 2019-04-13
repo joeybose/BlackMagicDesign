@@ -266,6 +266,7 @@ def loadData(opt,embedding=True):
 
         word_set=set()
         [word_set.add(word)  for l in df["text"] if l is not None for word in l ]
+        word_set = sorted(list(word_set))
     #    from functools import reduce
     #    word_set=set(reduce(lambda x,y :x+y,df["text"]))
 

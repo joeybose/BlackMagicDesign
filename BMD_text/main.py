@@ -95,8 +95,6 @@ def main(args):
                     test_loader, unk_model, G)
 
     # Blackbox Attack model
-    if args.debug:
-        ipdb.set_trace()
     model = models.GaussianPolicy(args.input_size, 400,
         args.latent_size,decode=False).to(args.device)
 
@@ -223,7 +221,7 @@ if __name__ == '__main__':
                     help='max_seq_len')
     parser.add_argument('--gamma', type=float, default=0.95,
                     help='Discount Factor')
-    parser.add_argument('--model', type=str, default="lstm_emb_input",
+    parser.add_argument('--model', type=str, default="lstm",
                     help='classification model name')
     parser.add_argument('--hidden_dim', type=int, default=128,
                     help='hidden_dim')
@@ -248,7 +246,7 @@ if __name__ == '__main__':
             default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Debug')
-    parser.add_argument('--model_path', type=str, default="saved_models/lstm.pt",
+    parser.add_argument('--model_path', type=str, default="saved_models/lstm_new4.pt",
                         help='where to save/load')
     parser.add_argument('--namestr', type=str, default='BMD Text', \
             help='additional info in output filename to describe experiments')

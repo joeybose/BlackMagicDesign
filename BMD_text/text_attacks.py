@@ -395,6 +395,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
             num_unperturbed = 10
             iter_count = 0
             loss_misclassify = 10
+            loss_perturb = 10
             iter_count = 0
             while loss_misclassify > 0 and loss_perturb > 1:
                 opt.zero_grad()
@@ -430,13 +431,14 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 # ipdb.set_trace()
                 # _ = decode_to_natural_lang(x[0],args)
                 # _ = decode_to_natural_lang(adv_out[0],args)
-                prob, idx = torch.max(preds, 1)
-                num_unperturbed = (idx == batch[1].label).float().sum()
+                out = preds.max(1, keepdim=True)[1] # get the index of the max log-probability
+                correct = out.eq(target.unsqueeze(1).data).sum()
+                # num_unperturbed = (out == batch[1].label).float().sum()
 
                 iter_count = iter_count + 1
                 if iter_count > args.max_iter:
                     break
-            correct += (idx == batch[1].label).float().sum()
+            correct += out.eq(target.unsqueeze(1).data).sum()
 
         if args.comet:
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
@@ -454,8 +456,6 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         # _ = decode_to_natural_lang(x[0],args)
         # print(' !!!!!! ADVERSARIAL !!!!!!''')
         # _ = decode_to_natural_lang(adv_out[0],args)
-
-    return out, delta
 
 def soft_reward(pred, targ):
     """
