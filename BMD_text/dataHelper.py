@@ -8,6 +8,7 @@ import pandas as pd
 from tqdm import tqdm
 import random
 import time
+from functools import wraps
 # from utils import log_time_delta
 from tqdm import tqdm
 from dataloader import Dataset
@@ -18,6 +19,18 @@ try:
     import cPickle as pickle
 except ImportError:
     import pickle
+
+def log_time_delta(func):
+    @wraps(func)
+    def _deco(*args, **kwargs):
+        start = time.time()
+        ret = func(*args, **kwargs)
+        end = time.time()
+        delta = end - start
+        print( "%s runed %.2f seconds"% (func.__name__,delta))
+        return ret
+    return _deco
+
 class Alphabet(dict):
     def __init__(self, start_feature_id = 1, alphabet_type="text"):
         self.fid = start_feature_id
@@ -63,13 +76,13 @@ class DottableDict(dict):
 class BucketIterator(object):
     def __init__(self,data,opt=None,batch_size=2,shuffle=True,test=False,position=False):
         self.shuffle=shuffle
-        self.dataset=data
+        self.data=data
         self.batch_size=batch_size
         self.test=test
         if opt is not None:
             self.setup(opt)
-
     def setup(self,opt):
+
         self.batch_size=opt.batch_size
         self.shuffle=opt.__dict__.get("shuffle",self.shuffle)
         self.position=opt.__dict__.get("position",False)
@@ -99,13 +112,13 @@ class BucketIterator(object):
 
     def __iter__(self):
         if self.shuffle:
-            self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
-        batch_nums = int(len(self.dataset)/self.batch_size)
+            self.data = self.data.sample(frac=1).reset_index(drop=True)
+        batch_nums = int(len(self.data)/self.batch_size)
         for  i in range(batch_nums):
-            yield self.transform(self.dataset[i*self.batch_size:(i+1)*self.batch_size])
-        yield self.transform(self.dataset[-1*self.batch_size:])
+            yield self.transform(self.data[i*self.batch_size:(i+1)*self.batch_size])
+        yield self.transform(self.data[-1*self.batch_size:])
 
-# @log_time_delta
+@log_time_delta
 def vectors_lookup(vectors,vocab,dim):
     embedding = np.zeros((len(vocab),dim))
     count = 1
@@ -118,7 +131,7 @@ def vectors_lookup(vectors,vocab,dim):
     print( 'word in embedding',count)
     return embedding
 
-# @log_time_delta
+@log_time_delta
 def load_text_vec(alphabet,filename="",embedding_size=-1):
     vectors = {}
     with open(filename,encoding='utf-8') as f:
@@ -148,7 +161,7 @@ def getEmbeddingFile(opt):
         return opt.embedding_dir
     # please refer to   https://pypi.python.org/pypi/torchwordemb/0.0.7
     return
-# @log_time_delta
+@log_time_delta
 def getSubVectors(opt,alphabet):
     pickle_filename = "temp/"+opt.dataset+".vec"
     if not os.path.exists(pickle_filename) or opt.debug:
@@ -200,7 +213,7 @@ def clean(text):
 #    print("%s $$$$$ %s" %(pre,text))
 
     return text.lower().split()
-# @log_time_delta
+@log_time_delta
 def get_clean_datas(opt):
     pickle_filename = "temp/"+opt.dataset+".data"
     if not os.path.exists(pickle_filename) or opt.debug:
@@ -245,8 +258,8 @@ def process_with_bert(text,tokenizer,max_seq_len) :
     return tokens[:max_seq_len] + [0] *int(max_seq_len-len(tokens))
 
 def loadData(opt,embedding=True):
-    # if args.no_load_embedding==False:
-        # return loadDataWithoutEmbedding(opt)
+    if opt.no_load_embedding==False:
+        return loadDataWithoutEmbedding(opt)
 
     datas =get_clean_datas(opt)
 
@@ -292,7 +305,7 @@ def loadData(opt,embedding=True):
             data["text"]= data["text"].apply(process_with_bert,tokenizer=tokenizer,max_seq_len = opt.max_seq_len)
         data["label"]=data["label"].apply(lambda text: label_alphabet.get(text))
 
-    return map(lambda x:BucketIterator(x,opt),datas)
+    return map(lambda x:BucketIterator(x,opt),datas)#map(BucketIterator,datas)  #
 
 def loadDataWithoutEmbedding(opt):
     datas=[]

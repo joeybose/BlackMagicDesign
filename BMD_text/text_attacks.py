@@ -160,7 +160,7 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
     ''' Testing Phase '''
     epsilon = args.epsilon
     test_itr = tqdm(enumerate(test_loader),\
-            total=len(test_loader.dataset)/args.test_batch_size)
+            total=len(test_loader.data)/args.test_batch_size)
     correct_test = 0
     for batch_idx, (data, target) in test_itr:
         x, target = data.to(args.device), target.to(args.device)
@@ -180,8 +180,8 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         correct_test += out.eq(target.unsqueeze(1).data).sum()
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(test_loader.dataset),\
-                100. * correct_test / len(test_loader.dataset)))
+            .format(correct_test, len(test_loader.data),\
+                100. * correct_test / len(test_loader.data)))
     if args.comet:
         if not args.mnist:
             index = np.random.choice(len(x) - 64, 1)[0]
@@ -220,7 +220,7 @@ def evaluation(model,test_iter,from_torchtext=False):
 def L2_test_model(args,epoch,test_loader,model,G):
     ''' Testing Phase '''
     test_itr = tqdm(enumerate(test_loader),\
-            total=len(test_loader.dataset)/args.batch_size)
+            total=len(test_loader.data)/args.batch_size)
     correct_test = 0
     for batch_idx, batch in enumerate(test_itr):
         x, target = batch[1].text, batch[1].label
@@ -239,8 +239,8 @@ def L2_test_model(args,epoch,test_loader,model,G):
         # correct_test = (idx == batch[1].label).float().sum()
 
     print('\nAdversarial noise Test set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(test_loader.dataset),\
-                100. * correct_test / len(test_loader.dataset)))
+            .format(correct_test, len(test_loader.data),\
+                100. * correct_test / len(test_loader.data)))
     # if args.comet:
         # file_base = "adv_images/" + args.namestr + "/"
         # if not os.path.exists(file_base):
@@ -279,7 +279,7 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         train_itr = tqdm(enumerate(train_loader),\
-                total=len(train_loader.dataset)/args.batch_size)
+                total=len(train_loader.data)/args.batch_size)
         correct = 0
         PGD_test_model(args,epoch,test_loader,model,G,nc,h,w)
         for batch_idx, (data, target) in train_itr:
@@ -309,12 +309,12 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
         if args.comet:
             args.experiment.log_metric("Whitebox CE loss",loss,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(train_loader.dataset),step=epoch)
+                    100.*correct/len(train_loader.data),step=epoch)
 
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
-                    loss, correct, len(train_loader.dataset),
-                    100. * correct / len(train_loader.dataset)))
+                    loss, correct, len(train_loader.data),
+                    100. * correct / len(train_loader.data)))
 
     return out, delta
 
@@ -324,7 +324,7 @@ def train_ae(args, train_loader, G):
 
     ''' Training Phase '''
     train_itr = tqdm(enumerate(train_loader),\
-            total=len(train_loader.dataset)/args.batch_size)
+            total=len(train_loader.data)/args.batch_size)
     correct = 0
     ntokens = len(args.alphabet)
 
@@ -392,7 +392,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         train_itr = tqdm(enumerate(train_loader),\
-                total=len(train_loader.dataset)/args.batch_size)
+                total=len(train_loader.data)/args.batch_size)
         correct = 0
         ntokens = len(args.alphabet)
         L2_test_model(args,epoch,test_loader,model,G)
@@ -452,12 +452,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
             args.experiment.log_metric("Whitebox Misclassification loss",\
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(train_loader.dataset),step=epoch)
+                    100.*correct/len(train_loader.data),step=epoch)
         print("Misclassification Loss: %d Perturb Loss %d" %(loss_misclassify,loss_perturb))
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
-                    loss, correct, len(train_loader.dataset),
-                    100. * correct / len(train_loader.dataset)))
+                    loss, correct, len(train_loader.data),
+                    100. * correct / len(train_loader.data)))
         # print(' !!!!!! ACTUAL !!!!!!''')
         # _ = decode_to_natural_lang(x[0],args)
         # print(' !!!!!! ADVERSARIAL !!!!!!''')

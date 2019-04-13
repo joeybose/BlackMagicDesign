@@ -248,6 +248,8 @@ if __name__ == '__main__':
                         help='Debug')
     parser.add_argument('--model_path', type=str, default="saved_models/lstm_test.pt",
                         help='where to save/load')
+    parser.add_argument('--no_load_embedding', action='store_false', default=True,
+                    help='load Glove embeddings')
     parser.add_argument('--namestr', type=str, default='BMD Text', \
             help='additional info in output filename to describe experiments')
     parser.add_argument('--dataset', type=str, default="imdb",help='dataset')

@@ -17,6 +17,7 @@ import ipdb
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def to_gpu(gpu, var):
     if gpu:
         return var.cuda()
