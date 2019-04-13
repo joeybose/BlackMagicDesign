@@ -67,7 +67,7 @@ def train_unk_model(args,model,train_itr,test_itr):
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
                            lr=2e-5, weight_decay=1e-3)
     # optimizer = optim.Adam(model.parameters(), weight_decay=1e-3)
-    # optimizer.zero_grad()
+    optimizer.zero_grad()
     for i in range(10):
         accuracy = []
         from_torchtext = False
@@ -111,9 +111,10 @@ def load_unk_model(args,train_itr,test_itr):
     """
     args.lstm_layers=2
     model=models.setup(args)
-    model.load_state_dict(torch.load(args.model_path))
+    # model.load_state_dict(torch.load(args.model_path))
     model.to(device)
-    # model = train_unk_model(args,model,train_itr,test_itr)
+    model = train_unk_model(args,model,train_itr,test_itr)
+    ipdb.set_trace()
     # model.eval()
     return model
 

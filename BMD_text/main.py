@@ -254,6 +254,8 @@ if __name__ == '__main__':
             help='additional info in output filename to describe experiments')
     parser.add_argument('--dataset', type=str, default="imdb",help='dataset')
     parser.add_argument('--clip', type=float, default=1, help='gradient clipping, max norm')
+    parser.add_argument('--use_glove', type=str, default="true",
+                    help='gpu number')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 

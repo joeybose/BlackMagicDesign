@@ -56,6 +56,8 @@ def parse_opt():
                     help='http://proxy.xx.com:8080')
     parser.add_argument('--debug', type=str, default="true",
                     help='gpu number')
+    parser.add_argument('--use_glove', type=str, default="true",
+                    help='gpu number')
 
     parser.add_argument('--embedding_dir', type=str, default=".glove/glove.6B.300d.txt",
                     help='embedding_dir')
