@@ -246,7 +246,7 @@ if __name__ == '__main__':
             default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Debug')
-    parser.add_argument('--model_path', type=str, default="saved_models/lstm_new4.pt",
+    parser.add_argument('--model_path', type=str, default="saved_models/lstm_test.pt",
                         help='where to save/load')
     parser.add_argument('--namestr', type=str, default='BMD Text', \
             help='additional info in output filename to describe experiments')

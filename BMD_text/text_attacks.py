@@ -210,7 +210,7 @@ def evaluation(model,test_iter,from_torchtext=False):
         else:
             accuracy.append(percision.data.numpy()[0] )
     ipdb.set_trace()
-    print("Model accuracy is %d" %(np.mean(accuracy)))
+    print("Target Model accuracy is %d" %(np.mean(accuracy)))
 
 def L2_test_model(args,epoch,test_loader,model,G):
     ''' Testing Phase '''
@@ -233,7 +233,7 @@ def L2_test_model(args,epoch,test_loader,model,G):
         correct_test += out.eq(target.unsqueeze(1).data).sum()
         # correct_test = (idx == batch[1].label).float().sum()
 
-    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
+    print('\nAdversarial noise Test set: Accuracy: {}/{} ({:.0f}%)\n'\
             .format(correct_test, len(test_loader.dataset),\
                 100. * correct_test / len(test_loader.dataset)))
     # if args.comet:
@@ -388,7 +388,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 total=len(train_loader.dataset)/args.batch_size)
         correct = 0
         ntokens = len(args.alphabet)
-        # evaluation(model,train_loader
+        evaluation(model,test_loader)
         L2_test_model(args,epoch,test_loader,model,G)
         for batch_idx, batch in enumerate(train_itr):
             x, target = batch[1].text, batch[1].label
