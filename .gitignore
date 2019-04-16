@@ -8,6 +8,8 @@ BMD_text/saved_models/*
 settings.json
 *.txt
 temp/
+demo.text
+.data/
 
 ./BMD_text/saved_models/cnn_.pt
 ./BMD_text/saved_models/lstm_.pt
@@ -17,3 +19,5 @@ temp/
 ./BMD_text/.vector_cache/glove.6B.300d.txt
 ./BMD_text/temp/imdb.data
 ./BMD_text/temp/imdb.vec
+/BMD_text/dataloader/prepared_data.pickle
+/BMD_text/dataloader/target_data.pickle
