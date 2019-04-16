@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import
+from __future__ import print_function
+
+import collections
 import torch
 import dataHelper
 import torch.nn.functional as F
+import collections
+import sklearn
 from torchtext import data
 from torchtext import datasets
 from torchtext.vocab import Vectors, GloVe, CharNGram, FastText
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from functools import wraps
 import torch.optim as optim
@@ -14,9 +21,201 @@ import logging
 import os
 import models
 import ipdb
+from dataHelper import*
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+UNKNOWN_IDX = 0
 
+class Vocabulary(object):
+    """Indexing for text tokens.
+
+
+    Build indices for the unknown token, reserved tokens, and input counter keys. Indexed tokens can
+    be used by token embeddings.
+
+
+    Parameters
+    ----------
+    counter : collections.Counter or None, default None
+        Counts text token frequencies in the text data. Its keys will be indexed according to
+        frequency thresholds such as `most_freq_count` and `min_freq`. Keys of `counter`,
+        `unknown_token`, and values of `reserved_tokens` must be of the same hashable type.
+        Examples: str, int, and tuple.
+    most_freq_count : None or int, default None
+        The maximum possible number of the most frequent tokens in the keys of `counter` that can be
+        indexed. Note that this argument does not count any token from `reserved_tokens`. Suppose
+        that there are different keys of `counter` whose frequency are the same, if indexing all of
+        them will exceed this argument value, such keys will be indexed one by one according to
+        their __cmp__() order until the frequency threshold is met. If this argument is None or
+        larger than its largest possible value restricted by `counter` and `reserved_tokens`, this
+        argument has no effect.
+    min_freq : int, default 1
+        The minimum frequency required for a token in the keys of `counter` to be indexed.
+    unknown_token : hashable object, default '&lt;unk&gt;'
+        The representation for any unknown token. In other words, any unknown token will be indexed
+        as the same representation. Keys of `counter`, `unknown_token`, and values of
+        `reserved_tokens` must be of the same hashable type. Examples: str, int, and tuple.
+    reserved_tokens : list of hashable objects or None, default None
+        A list of reserved tokens that will always be indexed, such as special symbols representing
+        padding, beginning of sentence, and end of sentence. It cannot contain `unknown_token`, or
+        duplicate reserved tokens. Keys of `counter`, `unknown_token`, and values of
+        `reserved_tokens` must be of the same hashable type. Examples: str, int, and tuple.
+
+
+    Attributes
+    ----------
+    unknown_token : hashable object
+        The representation for any unknown token. In other words, any unknown token will be indexed
+        as the same representation.
+    reserved_tokens : list of strs or None
+        A list of reserved tokens that will always be indexed.
+    """
+
+    def __init__(self, counter=None, most_freq_count=None, min_freq=1, unknown_token='',
+                 reserved_tokens=None):
+
+        # Sanity checks.
+        assert min_freq > 0, '`min_freq` must be set to a positive value.'
+
+        if reserved_tokens is not None:
+            reserved_token_set = set(reserved_tokens)
+            assert unknown_token not in reserved_token_set, \
+                '`reserved_token` cannot contain `unknown_token`.'
+            assert len(reserved_token_set) == len(reserved_tokens), \
+                '`reserved_tokens` cannot contain duplicate reserved tokens.'
+
+        self._index_unknown_and_reserved_tokens(unknown_token, reserved_tokens)
+
+        if counter is not None:
+            self._index_counter_keys(counter, unknown_token, reserved_tokens, most_freq_count,
+                                     min_freq)
+
+    def _index_unknown_and_reserved_tokens(self, unknown_token, reserved_tokens):
+        """Indexes unknown and reserved tokens."""
+
+        self._unknown_token = unknown_token
+        # Thus, constants.UNKNOWN_IDX must be 0.
+        self._idx_to_token = [unknown_token]
+
+        if reserved_tokens is None:
+            self._reserved_tokens = None
+        else:
+            self._reserved_tokens = reserved_tokens[:]
+            self._idx_to_token.extend(reserved_tokens)
+
+        self._token_to_idx = {token: idx for idx, token in enumerate(self._idx_to_token)}
+
+    def _index_counter_keys(self, counter, unknown_token, reserved_tokens, most_freq_count,
+                            min_freq):
+        """Indexes keys of `counter`.
+
+
+        Indexes keys of `counter` according to frequency thresholds such as `most_freq_count` and
+        `min_freq`.
+        """
+
+        assert isinstance(counter, collections.Counter), \
+            '`counter` must be an instance of collections.Counter.'
+
+        unknown_and_reserved_tokens = set(reserved_tokens) if reserved_tokens is not None else set()
+        unknown_and_reserved_tokens.add(unknown_token)
+
+        token_freqs = sorted(counter.items(), key=lambda x: x[0])
+        token_freqs.sort(key=lambda x: x[1], reverse=True)
+
+        token_cap = len(unknown_and_reserved_tokens) + (
+            len(counter) if most_freq_count is None else most_freq_count)
+
+        for token, freq in token_freqs:
+            if freq < min_freq or len(self._idx_to_token) == token_cap:
+                break
+            if token not in unknown_and_reserved_tokens:
+                self._idx_to_token.append(token)
+                self._token_to_idx[token] = len(self._idx_to_token) - 1
+
+    def __len__(self):
+        return len(self.idx_to_token)
+
+    @property
+    def token_to_idx(self):
+        """
+        dict mapping str to int: A dict mapping each token to its index integer.
+        """
+        return self._token_to_idx
+
+    @property
+    def idx_to_token(self):
+        """
+        list of strs:  A list of indexed tokens where the list indices and the token indices are aligned.
+        """
+        return self._idx_to_token
+
+    @property
+    def unknown_token(self):
+        return self._unknown_token
+
+    @property
+    def reserved_tokens(self):
+        return self._reserved_tokens
+
+    def to_indices(self, tokens):
+        """Converts tokens to indices according to the vocabulary.
+
+
+        Parameters
+        ----------
+        tokens : str or list of strs
+            A source token or tokens to be converted.
+
+
+        Returns
+        -------
+        int or list of ints
+            A token index or a list of token indices according to the vocabulary.
+        """
+
+        to_reduce = False
+        if not isinstance(tokens, list):
+            tokens = [tokens]
+            to_reduce = True
+
+        indices = [self.token_to_idx[token] if token in self.token_to_idx
+                   else UNKNOWN_IDX for token in tokens]
+
+        return indices[0] if to_reduce else indices
+
+
+    def to_tokens(self, indices):
+        """Converts token indices to tokens according to the vocabulary.
+
+
+        Parameters
+        ----------
+        indices : int or list of ints
+            A source token index or token indices to be converted.
+
+
+        Returns
+        -------
+        str or list of strs
+            A token or a list of tokens according to the vocabulary.
+        """
+
+        to_reduce = False
+        if not isinstance(indices, list):
+            indices = [indices]
+            to_reduce = True
+
+        max_idx = len(self.idx_to_token) - 1
+
+        tokens = []
+        for idx in indices:
+            if not isinstance(idx, int) or idx > max_idx:
+                raise ValueError('Token index %d in the provided `indices` is invalid.' % idx)
+            else:
+                tokens.append(self.idx_to_token[idx])
+
+        return tokens[0] if to_reduce else tokens
 
 def to_gpu(gpu, var):
     if gpu:
@@ -40,70 +239,43 @@ def decode_to_natural_lang(sequence,args):
     print(sentence)
     return sentence
 
-def evaluation(model,test_iter,from_torchtext=True):
-    model.eval()
-    accuracy=[]
-#    batch= next(iter(test_iter))
-    correct_test = 0
-    for index,batch in enumerate( test_iter):
-        text = batch.text[0] if from_torchtext else batch.text
-        predicted = model(text)
-        prob, idx = torch.max(F.log_softmax(predicted,dim=1), 1)
-        percision=(idx== batch.label).float().mean()
-        correct_test += idx.eq(batch.label.data).sum()
-
-        if torch.cuda.is_available():
-            accuracy.append(percision.data.item() )
-        else:
-            accuracy.append(percision.data.numpy()[0] )
-    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, 25000,\
-                100. * correct_test / 25000))
-    model.train()
-    return np.mean(accuracy)
-
 def train_unk_model(args,model,train_itr,test_itr):
-    loss_fun = F.cross_entropy
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                           lr=2e-5, weight_decay=1e-3)
-    # optimizer = optim.Adam(model.parameters(), weight_decay=1e-3)
-    optimizer.zero_grad()
-    for i in range(10):
-        accuracy = []
-        from_torchtext = False
-        for epoch,batch in enumerate(train_itr):
-            start= time.time()
-
-            text = batch.text[0] if from_torchtext else batch.text
-            predicted = model(text)
-
-            loss= loss_fun(predicted,batch.label)
-
-            # optimizer.zero_grad()
+    model.train()
+    epoch_loss = 0
+    epoch_acc = 0
+    optimizer = torch.optim.Adam(model.parameters(),weight_decay=1e-4)
+    for j in range(5):
+        for i, batch in enumerate(iterator):
+            x, y = batch['text'].cuda(), batch['labels'].cuda()
             optimizer.zero_grad()
+            predictions = model(x).squeeze(1)
+            loss = F.cross_entropy(predictions,y)
+            prob, idx = torch.max(F.log_softmax(predictions,dim=1), 1)
+            correct = idx.eq(y)
+            acc = correct.sum().float() /len(correct)
             loss.backward()
-            clip_gradient(optimizer, 1e-1)
-            prob, idx = torch.max(F.log_softmax(predicted,dim=1), 1)
-            percision=(idx== batch.label).float().mean()
-
-            if torch.cuda.is_available():
-                accuracy.append(percision.data.item() )
-            else:
-                accuracy.append(percision.data.numpy()[0] )
             optimizer.step()
-            if epoch% 1000==0:
-                if  torch.cuda.is_available():
-                    print("%d iteration %d epoch with loss : %.5f in %.4f seconds" % (i,epoch,loss.cpu().item(),time.time()-start))
-                else:
-                    print("%d iteration %d epoch with loss : %.5f in %.4f seconds" % (i,epoch,loss.data.numpy()[0],time.time()-start))
-
-        percision=evaluation(model,test_itr,False)
-        train_acc =  np.mean(accuracy)
-        print("%d iteration with Train Acc %.4f" % (i,train_acc))
-        print("%d iteration with Test Acc %.4f" % (i,percision))
-        fn = args.model+args.namestr+'.pt'
-        torch.save(model.state_dict(), fn)
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+        print('Train loss: ',epoch_loss / len(iterator),'Train accuracy: ' ,epoch_acc / len(iterator))
+    fn = 'saved_models/'+args.model+args.namestr+'.pt'
+    torch.save(model.state_dict(), fn)
     return model
+
+def evaluate(model, iterator):
+    epoch_loss = 0
+    epoch_acc = 0
+    with torch.no_grad():
+        for i, batch in enumerate(iterator):
+            x, y = batch['text'].cuda(), batch['labels'].cuda()
+            predictions = model(x).squeeze(1)
+            loss = F.cross_entropy(predictions,y)
+            prob, idx = torch.max(F.log_softmax(predictions,dim=1), 1)
+            correct = idx.eq(y)
+            acc = correct.sum().float() /len(correct)
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+        print('No Adv Evaluation loss: ',epoch_loss / len(iterator),'Eval accuracy: ' ,epoch_acc / len(iterator))
 
 def load_unk_model(args,train_itr,test_itr):
     """
@@ -111,10 +283,11 @@ def load_unk_model(args,train_itr,test_itr):
     """
     args.lstm_layers=2
     model=models.setup(args)
-    # model.load_state_dict(torch.load(args.model_path))
+    if not args.train_classifier:
+        model.load_state_dict(torch.load(args.model_path))
+    else:
+        model = train_unk_model(args,model,train_itr,test_itr)
     model.to(device)
-    model = train_unk_model(args,model,train_itr,test_itr)
-    ipdb.set_trace()
     # model.eval()
     return model
 
@@ -148,11 +321,28 @@ def get_cumulative_rewards(disc_logits, orig_targets, args, is_already_reward=Fa
     return cumulative_rewards
 
 def get_data(args):
-    # if from_torchtext:
-        # train_iter, test_iter = utils.loadData(opt)
-    # else:
-    import dataHelper as helper
-    train_iter, test_iter = dataHelper.loadData(args)
+    train_data, test_data = read_imdb(data_path), read_imdb(data_path, 'test')
+    batch_size = args.batch_size
+    vocab = get_vocab_imdb(train_data)
+    print('vocab_size:', len(vocab))
+    args.vocab_size = len(vocab)
+    args.label_size = 2
+    MAX_LEN = args.max_seq_len
+    train_data, train_labels = preprocess_imdb(train_data, vocab, MAX_LEN)
+    test_data, test_labels = preprocess_imdb(test_data, vocab, MAX_LEN)
+    trainset = IMDBDataset(train_data,train_labels)
+    testset = IMDBDataset(test_data,test_labels)
+    train_iter = DataLoader(trainset, batch_size=batch_size,
+			    shuffle=True, num_workers=4)
+    test_iter = DataLoader(testset, batch_size=batch_size,
+			    shuffle=True, num_workers=4)
+    glove_file = os.path.join( ".vector_cache","glove.6B.300d.txt")
+    wordset = vocab._token_to_idx
+    loaded_vectors,embedding_size = dataHelper.load_text_vec(wordset,glove_file)
+    vectors = dataHelper.vectors_lookup(loaded_vectors,wordset,300)
+    args.embeddings = vectors
+    args.inv_alph = vocab._idx_to_token
+    args.alphabet = wordset
     return train_iter, test_iter
 
 def log_time_delta(func):
@@ -205,26 +395,6 @@ def loadData(opt):
     opt.embeddings = TEXT.vocab.vectors
 
     return train_iter, test_iter
-
-
-def evaluation(model,test_iter,from_torchtext=True):
-    model.eval()
-    accuracy=[]
-#    batch= next(iter(test_iter))
-    for index,batch in enumerate( test_iter):
-        text = batch.text[0] if from_torchtext else batch.text
-        predicted = model(text)
-        prob, idx = torch.max(predicted, 1)
-        percision=(idx== batch.label).float().mean()
-
-        if torch.cuda.is_available():
-            accuracy.append(percision.data.item() )
-        else:
-            accuracy.append(percision.data.numpy()[0] )
-    model.train()
-    return np.mean(accuracy)
-
-
 
 def getOptimizer(params,name="adam",lr=1,momentum=None,scheduler=None):
 

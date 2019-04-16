@@ -343,7 +343,7 @@ class Seq2Seq(nn.Module):
         # flattened_output = decoded.view(-1, mask_dim)
         # masked_output = flattened_output.masked_select(output_mask).view(-1, mask_dim)
         # return masked_output, masked_target, KL, embeddings
-        return decoded, KL, embeddings
+        return decoded, KL
 
     def reparameterize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()

@@ -38,9 +38,10 @@ def main(args):
         ipdb.set_trace()
 
     # TODO: do we need this alphabet?
-    ntokens = len(args.alphabet)
-    inv_alphabet = {v: k for k, v in args.alphabet.items()}
-    args.inv_alph = inv_alphabet
+    ntokens = args.vocab_size
+    # ntokens = len(args.alphabet)
+    # inv_alphabet = {v: k for k, v in args.alphabet.items()}
+    # args.inv_alph = inv_alphabet
 
     # Load model which will produce the attack
     if args.convolution_enc:
@@ -94,17 +95,17 @@ def main(args):
             white_attack_func(args, train_loader,\
                     test_loader, unk_model, G)
 
-    # Blackbox Attack model
-    model = models.GaussianPolicy(args.input_size, 400,
-        args.latent_size,decode=False).to(args.device)
+    # # Blackbox Attack model
+    # model = models.GaussianPolicy(args.input_size, 400,
+        # args.latent_size,decode=False).to(args.device)
 
-    # Control Variate
-    cv = models.FC(args.input_size, args.classes).to(args.device)
+    # # Control Variate
+    # cv = models.FC(args.input_size, args.classes).to(args.device)
 
-    # Launch training
-    if args.single_data:
-        pred, delta = text_attacks.single_blackbox_attack(args, 'lax', data, target, unk_model, model, cv)
-        pred, delta = text_attacks.single_blackbox_attack(args, 'reinforce', data, target, unk_model, model, cv)
+    # # Launch training
+    # if args.single_data:
+        # pred, delta = text_attacks.single_blackbox_attack(args, 'lax', data, target, unk_model, model, cv)
+        # pred, delta = text_attacks.single_blackbox_attack(args, 'reinforce', data, target, unk_model, model, cv)
 
 if __name__ == '__main__':
     """
@@ -150,10 +151,12 @@ if __name__ == '__main__':
                         help='Number of Flows')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--input_size', type=int, default=784, metavar='S',
-                        help='Input size for MNIST is default')
     parser.add_argument('--batch_size', type=int, default=256, metavar='S',
                         help='Batch size')
+    parser.add_argument('--embedding_dim', type=int, default=300,
+                    help='embedding_dim')
+    parser.add_argument('--embedding_type', type=str, default="non-static",
+                    help='embedding_type')
     parser.add_argument('--test_batch_size', type=int, default=512, metavar='S',
                         help='Test Batch size')
     parser.add_argument('--test', default=False, action='store_true',
@@ -221,7 +224,7 @@ if __name__ == '__main__':
                     help='max_seq_len')
     parser.add_argument('--gamma', type=float, default=0.95,
                     help='Discount Factor')
-    parser.add_argument('--model', type=str, default="lstm",
+    parser.add_argument('--model', type=str, default="lstm_arch",
                     help='classification model name')
     parser.add_argument('--hidden_dim', type=int, default=128,
                     help='hidden_dim')
@@ -235,6 +238,8 @@ if __name__ == '__main__':
                         help='use convolutions in encoder')
     parser.add_argument('--seqgan_reward', action='store_true', default=False,
                         help='use seq gan reward')
+    parser.add_argument('--train_classifier', action='store_true', default=False,
+                        help='Train Classifier from scratch')
     # Bells
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
@@ -246,7 +251,7 @@ if __name__ == '__main__':
             default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Debug')
-    parser.add_argument('--model_path', type=str, default="saved_models/lstm_test.pt",
+    parser.add_argument('--model_path', type=str, default="saved_models/lstm_torchtext2.pt",\
                         help='where to save/load')
     parser.add_argument('--no_load_embedding', action='store_false', default=True,
                     help='load Glove embeddings')
@@ -257,6 +262,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_glove', type=str, default="true",
                     help='gpu number')
     args = parser.parse_args()
+    args.classes = 2
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)

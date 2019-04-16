@@ -7,6 +7,33 @@ from torch.autograd import Variable
 import ipdb
 #from memory_profiler import profile
 
+class lstm_arch(torch.nn.Module):
+    def __init__(self,opt):
+        super().__init__()
+        self.name = "LSTMClassifier"
+        self.hidden_dim = opt.hidden_dim
+        self.batch_size = opt.batch_size
+        self.use_gpu = torch.cuda.is_available()
+        self.embedding = torch.nn.Embedding(opt.vocab_size,opt.embedding_dim)   #prepare the lookup table for word embeddings
+        self.rnn = torch.nn.LSTM(opt.embedding_dim,opt.hidden_dim,\
+                                 batch_first=True,bias=True,\
+                                 num_layers=2,bidirectional=True,\
+                                 dropout=0.5)  #LSTM 2 layered and bidirectional
+        self.fc = torch.nn.Linear(opt.hidden_dim*2,opt.label_size)          #fully connected layer for output
+        self.dropout = torch.nn.Dropout(p =0.5)
+
+    def forward(self,feed_data,use_embed=False):
+        if not use_embed:
+            embed_out = self.dropout(self.embedding(feed_data))
+        else:
+            embed_out = feed_data
+        rnn_out,(rnn_hid,rnn_cell) = self.rnn(embed_out)
+        hidden = self.dropout(torch.cat((rnn_hid[-2,:,:], rnn_hid[-1,:,:]), dim=1))
+        return self.fc(hidden.squeeze(0))
+
+    def get_embeds(self,feed_data):
+        return self.embedding(feed_data) #64x200x300
+
 class LSTMClassifier(nn.Module):
     # embedding_dim, hidden_dim, vocab_size, label_size, batch_size, use_gpu
     def __init__(self,opt):
@@ -60,6 +87,9 @@ class LSTMClassifier(nn.Module):
         y  = self.hidden2label(final)  #64x3
         return y
 
+    def get_embeds(self,sentence):
+        return self.word_embeddings(sentence) #64x200x300
+
 class LSTMClassifierEmb(nn.Module):
     """
     An LSTM classifier to be attacked. For end-2-end white box attack, this
@@ -101,9 +131,6 @@ class LSTMClassifierEmb(nn.Module):
         Args:
             embeds: expect batch X 200 X 300
         """
-        # embeds = self.word_embeddings(sentence) #64x200x300
-
-#        x = embeds.view(sentence.size()[1], self.batch_size, -1)
         x=embeds.permute(1,0,2) #200x64x300
         self.hidden= self.init_hidden(sentence.size()[0]) #1x64x128
         lstm_out, self.hidden = self.lstm(x, self.hidden) #200x64x128

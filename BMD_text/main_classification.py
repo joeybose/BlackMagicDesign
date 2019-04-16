@@ -25,7 +25,7 @@ import time,os
 import ipdb
 
 
-from_torchtext = False
+from_torchtext = True
 
 opt = opts.parse_opt()
 #opt.proxy="http://xxxx.xxxx.com:8080"
@@ -35,7 +35,6 @@ if "CUDA_VISIBLE_DEVICES" not in os.environ.keys():
     os.environ["CUDA_VISIBLE_DEVICES"] =opt.gpu
 #opt.model ='lstm'
 #opt.model ='capsule'
-ipdb.set_trace()
 if from_torchtext:
     train_iter, test_iter = utils.loadData(opt)
 else:

@@ -160,7 +160,7 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
     ''' Testing Phase '''
     epsilon = args.epsilon
     test_itr = tqdm(enumerate(test_loader),\
-            total=len(test_loader.data)/args.test_batch_size)
+            total=len(test_loader)/args.test_batch_size)
     correct_test = 0
     for batch_idx, (data, target) in test_itr:
         x, target = data.to(args.device), target.to(args.device)
@@ -180,8 +180,8 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         correct_test += out.eq(target.unsqueeze(1).data).sum()
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(test_loader.data),\
-                100. * correct_test / len(test_loader.data)))
+            .format(correct_test, len(test_loader),\
+                100. * correct_test / len(test_loader)))
     if args.comet:
         if not args.mnist:
             index = np.random.choice(len(x) - 64, 1)[0]
@@ -196,51 +196,30 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,adv_image,"Adv.png",normalize=True)
         plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
 
-def evaluation(model,test_iter,from_torchtext=False):
-    model.eval()
-    accuracy=[]
-    correct_test = 0
-    for index,batch in enumerate( test_iter):
-        text = batch.text[0] if from_torchtext else batch.text
-        predicted = model(text)
-        prob, idx = torch.max(F.log_softmax(predicted,dim=1), 1)
-        percision=(idx== batch.label).float().mean()
-        correct_test += idx.eq(batch.label.data).sum()
-
-        if torch.cuda.is_available():
-            accuracy.append(percision.data.item() )
-        else:
-            accuracy.append(percision.data.numpy()[0] )
-    print('\n No Adversarial Noise Test set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, 25000,\
-                100. * correct_test / 25000))
-    model.train()
-    return np.mean(accuracy)
-
 def L2_test_model(args,epoch,test_loader,model,G):
+    model.eval()
     ''' Testing Phase '''
     test_itr = tqdm(enumerate(test_loader),\
-            total=len(test_loader.data)/args.batch_size)
+            total=len(test_loader)/args.batch_size)
     correct_test = 0
     for batch_idx, batch in enumerate(test_itr):
-        x, target = batch[1].text, batch[1].label
-        # output: batch x seq_len x ntokens
-        delta_embeddings, kl_div, input_embeddings  = G(x)
-        adv_embeddings = input_embeddings + delta_embeddings
-        # hidden  = G(x,encode_only=True)
-        # adv_out, fake_logits = G.module.generate(hidden,args.max_seq_len)
-        # logits, preds = model(adv_out.detach(),return_logits=True)
-        preds =  model(adv_embeddings.detach(),use_embed=True)
-        out = preds.max(1, keepdim=True)[1] # get the index of the max log-probability
+        x, target = batch[1]['text'].cuda(), batch[1]['labels'].cuda()
+        # # output: batch x seq_len x ntokens
+        # with torch.no_grad():
+        input_embeddings = model.get_embeds(x)
+        delta_embeddings, kl_div = G(x)
+        adv_embeddings = input_embeddings.detach() + delta_embeddings
+        preds = model(adv_embeddings,use_embed=True)
+        prob, idx = torch.max(F.log_softmax(preds,dim=1), 1)
         # prob, idx = torch.max(F.log_sofmax(preds,dim=1), 1)
         # _ = decode_to_natural_lang(x[0],args)
         # _ = decode_to_natural_lang(adv_out[0],args)
-        correct_test += out.eq(target.unsqueeze(1).data).sum()
-        # correct_test = (idx == batch[1].label).float().sum()
+        correct_test += idx.eq(target.data).sum()
 
     print('\nAdversarial noise Test set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(test_loader.data),\
-                100. * correct_test / len(test_loader.data)))
+            .format(correct_test, len(test_loader.dataset),\
+                100. * correct_test / len(test_loader.dataset)))
+    model.train()
     # if args.comet:
         # file_base = "adv_images/" + args.namestr + "/"
         # if not os.path.exists(file_base):
@@ -279,7 +258,7 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         train_itr = tqdm(enumerate(train_loader),\
-                total=len(train_loader.data)/args.batch_size)
+                total=len(train_loader)/args.batch_size)
         correct = 0
         PGD_test_model(args,epoch,test_loader,model,G,nc,h,w)
         for batch_idx, (data, target) in train_itr:
@@ -309,12 +288,12 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
         if args.comet:
             args.experiment.log_metric("Whitebox CE loss",loss,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(train_loader.data),step=epoch)
+                    100.*correct/len(train_loader),step=epoch)
 
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
-                    loss, correct, len(train_loader.data),
-                    100. * correct / len(train_loader.data)))
+                    loss, correct, len(train_loader),
+                    100. * correct / len(train_loader)))
 
     return out, delta
 
@@ -324,7 +303,7 @@ def train_ae(args, train_loader, G):
 
     ''' Training Phase '''
     train_itr = tqdm(enumerate(train_loader),\
-            total=len(train_loader.data)/args.batch_size)
+            total=len(train_loader)/args.batch_size)
     correct = 0
     ntokens = len(args.alphabet)
 
@@ -381,70 +360,62 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         misclassify_loss_func = carlini_wagner_loss
     else:
         misclassify_loss_func = CE_loss_func
-        # misclassify_loss_func = reinforce_seq_loss
 
     ''' Burn in VAE '''
     if args.train_ae:
         print("Doing Burn in VAE")
         train_ae(args, train_loader, G)
 
-    evaluation(model,test_loader)
+    utils.evaluate(model,test_loader)
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         train_itr = tqdm(enumerate(train_loader),\
-                total=len(train_loader.data)/args.batch_size)
+                total=len(train_loader)/args.batch_size)
         correct = 0
         ntokens = len(args.alphabet)
         L2_test_model(args,epoch,test_loader,model,G)
         for batch_idx, batch in enumerate(train_itr):
-            x, target = batch[1].text, batch[1].label
+            x, y = batch[1]['text'].cuda(), batch[1]['labels'].cuda()
             num_unperturbed = 10
             iter_count = 0
             loss_misclassify = 10
             loss_perturb = 10
             iter_count = 0
+
+            ''' Get input embeddings from Model '''
+            x_embeddings = model.get_embeds(x)
+
             while loss_misclassify > 0 and loss_perturb > 1:
                 opt.zero_grad()
+                input_embeddings = x_embeddings.detach()
 
                 # output: batch x seq_len x ntokens
                 if not args.vanilla_G:
-                    delta_embeddings, kl_div, input_embeddings  = G(x)
+                    delta_embeddings, kl_div = G(x)
                     kl_div = kl_div.mean()
                 else:
                     output = G(x)
 
-                # TODO: For embeddings, this loss doesn't make sense
                 adv_embeddings = input_embeddings + delta_embeddings
                 loss_perturb = L2_dist(input_embeddings,adv_embeddings) / len(input_embeddings)
-                # recon_loss = criterion_ce(masked_output, masked_target)
-
-                # Sample Adversarial samples from Decoder
-                # hidden  = G(x,encode_only=True)
-                # adv_out, fake_logits = G.module.generate(hidden,args.max_seq_len)
                 # Evaluate target model with adversarial samples
-                logits, preds = model(adv_embeddings.detach(),return_logits=True,use_embed=True)
-                # cumulative_rewards = get_cumulative_rewards(logits,target,args,is_already_reward=True)
-                # loss_misclassify = misclassify_loss_funcewards,
-                                                         # fake_logits, adv_out,
-                                                         # None, args)
-                loss_misclassify = misclassify_loss_func(args,preds,target)
+                preds = model(adv_embeddings,use_embed=True)
+                loss_misclassify = misclassify_loss_func(args,preds,y)
 
                 loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
                 loss.backward()
                 # `clip_grad_norm` to prevent exploding gradient in RNNs / LSTMs
                 torch.nn.utils.clip_grad_norm_(G.parameters(), args.clip)
                 opt.step()
-                # ipdb.set_trace()
                 # _ = decode_to_natural_lang(x[0],args)
                 # _ = decode_to_natural_lang(adv_out[0],args)
-                out = preds.max(1, keepdim=True)[1] # get the index of the max log-probability
-                correct = out.eq(target.unsqueeze(1).data).sum()
-                # num_unperturbed = (out == batch[1].label).float().sum()
+                out = torch.max(F.log_softmax(preds,dim=1), 1)[1]
+                correct = out.eq(y.data).sum()
 
                 iter_count = iter_count + 1
                 if iter_count > args.max_iter:
                     break
-            correct += out.eq(target.unsqueeze(1).data).sum()
+            correct += out.eq(y.data).sum()
 
         if args.comet:
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
@@ -452,12 +423,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
             args.experiment.log_metric("Whitebox Misclassification loss",\
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(train_loader.data),step=epoch)
+                    100.*correct/len(train_loader),step=epoch)
         print("Misclassification Loss: %d Perturb Loss %d" %(loss_misclassify,loss_perturb))
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
-                    loss, correct, len(train_loader.data),
-                    100. * correct / len(train_loader.data)))
+                    loss, correct, len(train_loader.dataset),
+                    100. * correct / len(train_loader.dataset)))
         # print(' !!!!!! ACTUAL !!!!!!''')
         # _ = decode_to_natural_lang(x[0],args)
         # print(' !!!!!! ADVERSARIAL !!!!!!''')

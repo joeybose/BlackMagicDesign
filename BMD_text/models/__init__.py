@@ -3,14 +3,8 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-
-
 import numpy as np
-
-
-
-from .LSTM import LSTMClassifier, LSTMClassifierEmb
+from .LSTM import LSTMClassifier, lstm_arch, LSTMClassifierEmb
 from .CNNBasic import BasicCNN1D,BasicCNN2D
 from .CNNKim import KIMCNN1D,KIMCNN2D
 from .CNNMultiLayer import MultiLayerCNN
@@ -28,6 +22,8 @@ def setup(opt):
 
     if opt.model == 'lstm':
         model = LSTMClassifier(opt)
+    elif opt.model == 'lstm_arch':
+        model = lstm_arch(opt)
     elif opt.model == 'lstm_emb_input':
         model = LSTMClassifierEmb(opt)
     elif opt.model == 'baisc_cnn' or opt.model == "cnn":
