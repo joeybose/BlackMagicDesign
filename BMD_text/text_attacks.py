@@ -24,6 +24,7 @@ from tqdm import tqdm
 from utils import *
 import ipdb
 from advertorch.attacks import LinfPGDAttack
+from tools.nearest import nearest_neighbours
 
 def whitebox_pgd(args, image, target, model, normalize=None):
     adversary = LinfPGDAttack(
@@ -375,7 +376,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 total=len(train_loader)/args.batch_size)
         correct = 0
         ntokens = len(args.alphabet)
-        L2_test_model(args,epoch,test_loader,model,G)
+        # L2_test_model(args,epoch,test_loader,model,G)
         for batch_idx, batch in enumerate(train_itr):
             x, y = batch[1]['text'].cuda(), batch[1]['labels'].cuda()
             num_unperturbed = 10
@@ -400,6 +401,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
                 adv_embeddings = input_embeddings + delta_embeddings
                 loss_perturb = L2_dist(input_embeddings,adv_embeddings) / len(input_embeddings)
+                # Get nearest neighbour indices/tokens
+                nearest_idx, nearest_tokens = nearest_neighbours(\
+                                            args.embeddings, adv_embeddings,
+                                            args.inv_alph, args.alphabet,args)
+
+
                 # Evaluate target model with adversarial samples
                 preds = model(adv_embeddings,use_embed=True)
                 loss_misclassify = misclassify_loss_func(args,preds,y)
