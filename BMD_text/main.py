@@ -28,7 +28,8 @@ def main(args):
     if args.single_data:
         data,target = utils.get_single_data(args)
     else:
-        train_loader,test_loader = utils.get_data(args)
+        prepared_data = 'dataloader/prepared_data.pickle'
+        train_loader,test_loader = utils.get_data(args, prepared_data)
 
     # The unknown model to attack, specified in args.model
     unk_model = utils.load_unk_model(args,train_loader,test_loader)

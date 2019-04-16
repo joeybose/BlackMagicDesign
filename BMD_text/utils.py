@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import collections
 import torch
+import pickle
 import dataHelper
 import torch.nn.functional as F
 import collections
@@ -320,7 +321,25 @@ def get_cumulative_rewards(disc_logits, orig_targets, args, is_already_reward=Fa
 
     return cumulative_rewards
 
-def get_data(args):
+def get_data(args, prepared_data):
+    """
+    Prepare the data or load some already prepared data such as the embeddings
+    """
+
+    # If data already prepared in pickle, load and return
+    if os.path.isfile(prepared_data):
+        print("Found data pickle, loading from {}".format(prepared_data))
+        with open(prepared_data, 'rb') as p:
+            d = pickle.load(p)
+            args.vocab_size = d["vocab_size"]
+            args.label_size = d["label_size"]
+            args.embeddings = d["vectors"]
+            args.inv_alph = d["inv_alph"]
+            args.alphabet = d["wordset"]
+            train_iter = d["train_iter"]
+            test_iter = d["test_iter"]
+        return train_iter, test_iter
+
     train_data, test_data = read_imdb(data_path), read_imdb(data_path, 'test')
     batch_size = args.batch_size
     vocab = get_vocab_imdb(train_data)
@@ -336,13 +355,32 @@ def get_data(args):
 			    shuffle=True, num_workers=4)
     test_iter = DataLoader(testset, batch_size=batch_size,
 			    shuffle=True, num_workers=4)
+
     glove_file = os.path.join( ".vector_cache","glove.6B.300d.txt")
     wordset = vocab._token_to_idx
-    loaded_vectors,embedding_size = dataHelper.load_text_vec(wordset,glove_file)
+
+    loaded_vectors,embedding_size =\
+                            dataHelper.load_text_vec(wordset,glove_file)
     vectors = dataHelper.vectors_lookup(loaded_vectors,wordset,300)
+
     args.embeddings = vectors
     args.inv_alph = vocab._idx_to_token
     args.alphabet = wordset
+
+    # Save prepared data for future fast load
+    with open(prepared_data, 'wb') as p:
+        d = {}
+        d["vocab_size"] = args.vocab_size
+        d["label_size"] = args.label_size
+        d["vectors"] = args.embeddings
+        d["inv_alph"] = args.inv_alph
+        d["wordset"] = wordset
+        d["train_iter"] = train_iter
+        d["test_iter"] = test_iter
+        pickle.dump(d, p, protocol=pickle.HIGHEST_PROTOCOL)
+        print("Saved prepared data for future fast load to: {}".format(\
+                                                                prepared_data))
+
     return train_iter, test_iter
 
 def log_time_delta(func):
