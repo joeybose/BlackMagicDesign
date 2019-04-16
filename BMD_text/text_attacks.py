@@ -211,7 +211,6 @@ def L2_test_model(args,epoch,test_loader,model,G):
         adv_embeddings = input_embeddings.detach() + delta_embeddings
         preds = model(adv_embeddings,use_embed=True)
         prob, idx = torch.max(F.log_softmax(preds,dim=1), 1)
-        # prob, idx = torch.max(F.log_sofmax(preds,dim=1), 1)
         # _ = decode_to_natural_lang(x[0],args)
         # _ = decode_to_natural_lang(adv_out[0],args)
         correct_test += idx.eq(target.data).sum()
@@ -220,6 +219,9 @@ def L2_test_model(args,epoch,test_loader,model,G):
             .format(correct_test, len(test_loader.dataset),\
                 100. * correct_test / len(test_loader.dataset)))
     model.train()
+    if args.comet:
+        args.experiment.log_metric("Test Adv Accuracy",\
+                100.*correct_test/len(test_loader.dataset),step=epoch)
     # if args.comet:
         # file_base = "adv_images/" + args.namestr + "/"
         # if not os.path.exists(file_base):
@@ -423,8 +425,8 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
             args.experiment.log_metric("Whitebox Misclassification loss",\
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(train_loader),step=epoch)
-        print("Misclassification Loss: %d Perturb Loss %d" %(loss_misclassify,loss_perturb))
+                    100.*correct/len(train_loader.dataset),step=epoch)
+        print("Misclassification Loss: %f Perturb Loss %f" %(loss_misclassify,loss_perturb))
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
                     loss, correct, len(train_loader.dataset),
