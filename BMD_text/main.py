@@ -268,16 +268,15 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
 
     # Check if settings file
-    if not os.path.isfile("settings.json"):
+    if os.path.isfile("settings.json"):
         with open('settings.json') as f:
             data = json.load(f)
-        ipdb.set_trace()
-        args.comet_apikey = data["api_key"]
+        args.comet_apikey = data["apikey"]
         args.comet_username = data["username"]
 
-        # No set_trace ;)
-        if data["ipdb"] == "False":
-            ipdb.set_trace = lambda: None
+    # No set_trace ;)
+    if args.debug is False:
+        ipdb.set_trace = lambda: None
 
     args.device = torch.device("cuda" if use_cuda else "cpu")
     if args.comet:

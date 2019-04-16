@@ -25,6 +25,8 @@ python main.py --cifar --white --batch_size=256
 # Eg NLP run
 cd BMD_text
 python main.py --white --no_pgd_optim --hidden_init --batch_size=8 --namestr="BMD Text" --LAMBDA=10
+
+python main.py --white --no_pgd_optim --hidden_init --batch_size=128  --namestr="carlini_Text" --LAMBDA=0.01 --carlini_loss --comet
 ```
 
 
