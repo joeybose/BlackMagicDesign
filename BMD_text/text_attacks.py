@@ -378,6 +378,8 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         ntokens = len(args.alphabet)
         # L2_test_model(args,epoch,test_loader,model,G)
         for batch_idx, batch in enumerate(train_itr):
+            if args.max_batches is not None and batch_idx >= args.max_batches:
+                break
             x, y = batch[1]['text'].cuda(), batch[1]['labels'].cuda()
             num_unperturbed = 10
             iter_count = 0
@@ -400,12 +402,8 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     output = G(x)
 
                 adv_embeddings = input_embeddings + delta_embeddings
-                loss_perturb = L2_dist(input_embeddings,adv_embeddings) / len(input_embeddings)
-                # Get nearest neighbour indices/tokens
-                nearest_idx, nearest_tokens = nearest_neighbours(\
-                                            args.embeddings, adv_embeddings,
-                                            args.inv_alph, args.alphabet,args)
-
+                l2_dist = L2_dist(input_embeddings,adv_embeddings)
+                loss_perturb =  l2_dist / len(input_embeddings)
 
                 # Evaluate target model with adversarial samples
                 preds = model(adv_embeddings,use_embed=True)
@@ -433,15 +431,49 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
                     100.*correct/len(train_loader.dataset),step=epoch)
-        print("Misclassification Loss: %f Perturb Loss %f" %(loss_misclassify,loss_perturb))
+        print("Misclassification Loss: %f Perturb Loss %f" %(\
+                                                loss_misclassify,loss_perturb))
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
                     loss, correct, len(train_loader.dataset),
                     100. * correct / len(train_loader.dataset)))
+
+        print('*'*80)
+        print('Original example:')
+        original_tokens = decode_to_token(x[:2], args.inv_alph)
+        print(original_tokens[0])
+
+        print('Adversarial example:')
+        # Get nearest neighbour indices/tokens
+        nearest_idx, nearest_tokens = nearest_neighbours(\
+                                    args.embeddings, adv_embeddings[:2],
+                                    args.inv_alph, args.alphabet,args)
+        print(nearest_tokens[0])
+        print('*'*80)
+
         # print(' !!!!!! ACTUAL !!!!!!''')
         # _ = decode_to_natural_lang(x[0],args)
         # print(' !!!!!! ADVERSARIAL !!!!!!''')
         # _ = decode_to_natural_lang(adv_out[0],args)
+
+def decode_to_token(x, idx_to_tok):
+    """
+    Given a batch of embeddings, returns string tokens
+    Args:
+        x: (Tensor) size [batch, seq length, emb size]
+        idx_to_tok: (list) return the string token given index where the index
+                    matches to the embedding index
+    """
+    x_tokens = []
+    # Loop sequences
+    for j in range(x.shape[0]):
+        seq_tokens = []
+        for i, word in enumerate(x[j]):
+            seq_tokens.append(idx_to_tok[x[j,i]])
+            sentence = ' '.join(seq_tokens[:])
+        x_tokens.append(sentence)
+    return x_tokens
+
 
 def soft_reward(pred, targ):
     """

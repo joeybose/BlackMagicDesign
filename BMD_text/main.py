@@ -114,153 +114,156 @@ if __name__ == '__main__':
     """
     parser = argparse.ArgumentParser(description='BlackBox')
     # Hparams
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+    padd = parser.add_argument
+    padd('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--latent_dim', type=int, default=20, metavar='N',
+    padd('--latent_dim', type=int, default=20, metavar='N',
                         help='Latent dim for VAE')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+    padd('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
+    padd('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--latent_size', type=int, default=50, metavar='N',
+    padd('--latent_size', type=int, default=50, metavar='N',
                         help='Size of latent distribution (default: 50)')
-    parser.add_argument('--estimator', default='reinforce', const='reinforce',
+    padd('--estimator', default='reinforce', const='reinforce',
                     nargs='?', choices=['reinforce', 'lax'],
                     help='Grad estimator for noise (default: %(default)s)')
-    parser.add_argument('--reward', default='soft', const='soft',
+    padd('--reward', default='soft', const='soft',
                     nargs='?', choices=['soft', 'hard'],
                     help='Reward for grad estimator (default: %(default)s)')
-    parser.add_argument('--flow_type', default='planar', const='soft',
+    padd('--flow_type', default='planar', const='soft',
                     nargs='?', choices=['planar', 'radial'],
                     help='Type of Normalizing Flow (default: %(default)s)')
     # Training
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    padd('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--PGD_steps', type=int, default=40, metavar='N',
+    padd('--PGD_steps', type=int, default=40, metavar='N',
                         help='max gradient steps (default: 30)')
-    parser.add_argument('--max_iter', type=int, default=20, metavar='N',
+    padd('--max_iter', type=int, default=20, metavar='N',
                         help='max gradient steps (default: 30)')
-    parser.add_argument('--epsilon', type=float, default=0.5, metavar='M',
+    padd('--max_batches', type=int, default=None, metavar='N',
+                        help='max number of batches per epoch, used for debugging (default: None)')
+    padd('--epsilon', type=float, default=0.5, metavar='M',
 			help='Epsilon for Delta (default: 0.1)')
-    parser.add_argument('--LAMBDA', type=float, default=100, metavar='M',
+    padd('--LAMBDA', type=float, default=100, metavar='M',
 			help='Lambda for L2 lagrange penalty (default: 0.1)')
-    parser.add_argument('--bb_steps', type=int, default=2000, metavar='N',
+    padd('--bb_steps', type=int, default=2000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
-    parser.add_argument('--attack_epochs', type=int, default=10, metavar='N',
+    padd('--attack_epochs', type=int, default=10, metavar='N',
                         help='Max numbe of epochs to train G')
-    parser.add_argument('--num_flows', type=int, default=30, metavar='N',
+    padd('--num_flows', type=int, default=30, metavar='N',
                         help='Number of Flows')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
+    padd('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--batch_size', type=int, default=256, metavar='S',
+    padd('--batch_size', type=int, default=256, metavar='S',
                         help='Batch size')
-    parser.add_argument('--embedding_dim', type=int, default=300,
+    padd('--embedding_dim', type=int, default=300,
                     help='embedding_dim')
-    parser.add_argument('--embedding_type', type=str, default="non-static",
+    padd('--embedding_type', type=str, default="non-static",
                     help='embedding_type')
-    parser.add_argument('--test_batch_size', type=int, default=512, metavar='S',
+    padd('--test_batch_size', type=int, default=512, metavar='S',
                         help='Test Batch size')
-    parser.add_argument('--test', default=False, action='store_true',
+    padd('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
-    parser.add_argument('--clip_grad', default=True, action='store_true',
+    padd('--clip_grad', default=True, action='store_true',
                         help='Clip grad norm')
-    parser.add_argument('--train_vae', default=False, action='store_true',
+    padd('--train_vae', default=False, action='store_true',
                         help='Train VAE')
-    parser.add_argument('--train_ae', default=False, action='store_true',
+    padd('--train_ae', default=False, action='store_true',
                         help='Train AE')
-    parser.add_argument('--white', default=False, action='store_true',
+    padd('--white', default=False, action='store_true',
                         help='White Box test')
-    parser.add_argument('--use_flow', default=False, action='store_true',
+    padd('--use_flow', default=False, action='store_true',
                         help='Add A NF to Generator')
-    parser.add_argument('--carlini_loss', default=False, action='store_true',
+    padd('--carlini_loss', default=False, action='store_true',
                         help='Use CW loss function')
-    parser.add_argument('--no_pgd_optim', default=False, action='store_true',
+    padd('--no_pgd_optim', default=False, action='store_true',
                         help='Use Lagrangian objective instead of PGD')
-    parser.add_argument('--vanilla_G', default=False, action='store_true',
+    padd('--vanilla_G', default=False, action='store_true',
                         help='Vanilla G White Box')
-    parser.add_argument('--single_data', default=False, action='store_true',
+    padd('--single_data', default=False, action='store_true',
                         help='Test on a single data')
     # Imported Model Params
-    parser.add_argument('--emsize', type=int, default=300,
+    padd('--emsize', type=int, default=300,
                         help='size of word embeddings')
-    parser.add_argument('--nhidden', type=int, default=300,
+    padd('--nhidden', type=int, default=300,
                         help='number of hidden units per layer in LSTM')
-    parser.add_argument('--nlayers', type=int, default=2,
+    padd('--nlayers', type=int, default=2,
                         help='number of layers')
-    parser.add_argument('--noise_radius', type=float, default=0.2,
+    padd('--noise_radius', type=float, default=0.2,
                         help='stdev of noise for autoencoder (regularizer)')
-    parser.add_argument('--noise_anneal', type=float, default=0.995,
+    padd('--noise_anneal', type=float, default=0.995,
                         help='anneal noise_radius exponentially by this every 100 iterations')
-    parser.add_argument('--hidden_init', action='store_true',
+    padd('--hidden_init', action='store_true',
                         help="initialize decoder hidden state with encoder's")
-    parser.add_argument('--arch_i', type=str, default='300-300',
+    padd('--arch_i', type=str, default='300-300',
                         help='inverter architecture (MLP)')
-    parser.add_argument('--arch_g', type=str, default='300-300',
+    padd('--arch_g', type=str, default='300-300',
                         help='generator architecture (MLP)')
-    parser.add_argument('--arch_d', type=str, default='300-300',
+    padd('--arch_d', type=str, default='300-300',
                         help='critic/discriminator architecture (MLP)')
-    parser.add_argument('--arch_conv_filters', type=str, default='500-700-1000',
+    padd('--arch_conv_filters', type=str, default='500-700-1000',
                         help='encoder filter sizes for different convolutional layers')
-    parser.add_argument('--arch_conv_strides', type=str, default='1-2-2',
+    padd('--arch_conv_strides', type=str, default='1-2-2',
                         help='encoder strides for different convolutional layers')
-    parser.add_argument('--arch_conv_windows', type=str, default='3-3-3',
+    padd('--arch_conv_windows', type=str, default='3-3-3',
                         help='encoder window sizes for different convolutional layers')
-    parser.add_argument('--z_size', type=int, default=100,
+    padd('--z_size', type=int, default=100,
                         help='dimension of random noise z to feed into generator')
-    parser.add_argument('--temp', type=float, default=1,
+    padd('--temp', type=float, default=1,
                         help='softmax temperature (lower --> more discrete)')
-    parser.add_argument('--enc_grad_norm', type=bool, default=True,
+    padd('--enc_grad_norm', type=bool, default=True,
                         help='norm code gradient from critic->encoder')
-    parser.add_argument('--train_emb', type=bool, default=True,
+    padd('--train_emb', type=bool, default=True,
                         help='Train Glove Embeddings')
-    parser.add_argument('--gan_toenc', type=float, default=-0.01,
+    padd('--gan_toenc', type=float, default=-0.01,
                         help='weight factor passing gradient from gan to encoder')
-    parser.add_argument('--dropout', type=float, default=0.0,
+    padd('--dropout', type=float, default=0.0,
                         help='dropout applied to layers (0 = no dropout)')
-    parser.add_argument('--useJS', type=bool, default=True,
+    padd('--useJS', type=bool, default=True,
                         help='use Jenson Shannon distance')
-    parser.add_argument('--perturb_z', type=bool, default=True,
+    padd('--perturb_z', type=bool, default=True,
                         help='perturb noise space z instead of hidden c')
-    parser.add_argument('--max_seq_len', type=int, default=200,
+    padd('--max_seq_len', type=int, default=200,
                     help='max_seq_len')
-    parser.add_argument('--gamma', type=float, default=0.95,
+    padd('--gamma', type=float, default=0.95,
                     help='Discount Factor')
-    parser.add_argument('--model', type=str, default="lstm_arch",
+    padd('--model', type=str, default="lstm_arch",
                     help='classification model name')
-    parser.add_argument('--hidden_dim', type=int, default=128,
+    padd('--hidden_dim', type=int, default=128,
                     help='hidden_dim')
-    parser.add_argument('--burn_in', type=int, default=500,
+    padd('--burn_in', type=int, default=500,
                     help='Train VAE burnin')
-    parser.add_argument('--beta', type=float, default=0.,
+    padd('--beta', type=float, default=0.,
                     help='Entropy reg')
-    parser.add_argument('--embedding_training', type=bool, default=False,
+    padd('--embedding_training', type=bool, default=False,
                     help='embedding_training')
-    parser.add_argument('--convolution_enc', action='store_true', default=False,
+    padd('--convolution_enc', action='store_true', default=False,
                         help='use convolutions in encoder')
-    parser.add_argument('--seqgan_reward', action='store_true', default=False,
+    padd('--seqgan_reward', action='store_true', default=False,
                         help='use seq gan reward')
-    parser.add_argument('--train_classifier', action='store_true', default=False,
+    padd('--train_classifier', action='store_true', default=False,
                         help='Train Classifier from scratch')
     # Bells
-    parser.add_argument('--no-cuda', action='store_true', default=False,
+    padd('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
-    parser.add_argument("--comet", action="store_true", default=False,
+    padd("--comet", action="store_true", default=False,
             help='Use comet for logging')
-    parser.add_argument("--comet_username", type=str, default="joeybose",
+    padd("--comet_username", type=str, default="joeybose",
             help='Username for comet logging')
-    parser.add_argument("--comet_apikey", type=str,\
+    padd("--comet_apikey", type=str,\
             default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
-    parser.add_argument('--debug', default=False, action='store_true',
+    padd('--debug', default=False, action='store_true',
                         help='Debug')
-    parser.add_argument('--model_path', type=str, default="saved_models/lstm_torchtext2.pt",\
+    padd('--model_path', type=str, default="saved_models/lstm_torchtext2.pt",\
                         help='where to save/load')
-    parser.add_argument('--no_load_embedding', action='store_false', default=True,
+    padd('--no_load_embedding', action='store_false', default=True,
                     help='load Glove embeddings')
-    parser.add_argument('--namestr', type=str, default='BMD Text', \
+    padd('--namestr', type=str, default='BMD Text', \
             help='additional info in output filename to describe experiments')
-    parser.add_argument('--dataset', type=str, default="imdb",help='dataset')
-    parser.add_argument('--clip', type=float, default=1, help='gradient clipping, max norm')
-    parser.add_argument('--use_glove', type=str, default="true",
+    padd('--dataset', type=str, default="imdb",help='dataset')
+    padd('--clip', type=float, default=1, help='gradient clipping, max norm')
+    padd('--use_glove', type=str, default="true",
                     help='gpu number')
     args = parser.parse_args()
     args.classes = 2

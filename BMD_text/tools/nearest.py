@@ -33,5 +33,6 @@ def nearest_neighbours(emb_array, batch, idx_to_tok, token_to_idx,args,near=1):
             max_score = score.argmax()
             nearest_idx[j, i] = max_score
             seq_tokens.append(idx_to_tok[max_score])
-        nearest_tokens.append(seq_tokens[:])
+        seq_string = ' '.join(seq_tokens)
+        nearest_tokens.append((seq_string))
     return nearest_idx, nearest_tokens
