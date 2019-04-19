@@ -414,8 +414,6 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 # `clip_grad_norm` to prevent exploding gradient in RNNs / LSTMs
                 torch.nn.utils.clip_grad_norm_(G.parameters(), args.clip)
                 opt.step()
-                # _ = decode_to_natural_lang(x[0],args)
-                # _ = decode_to_natural_lang(adv_out[0],args)
                 out = torch.max(F.log_softmax(preds,dim=1), 1)[1]
                 correct = out.eq(y.data).sum()
 
@@ -424,6 +422,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     break
             correct += out.eq(y.data).sum()
 
+        utils.evaluate_neighbours(test_loader, model, G, args, epoch)
         if args.comet:
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
             args.experiment.log_metric("Whitebox Recon loss",loss_perturb,step=epoch)
@@ -437,42 +436,6 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 .format(epoch,\
                     loss, correct, len(train_loader.dataset),
                     100. * correct / len(train_loader.dataset)))
-
-        print('*'*80)
-        print('Original example:')
-        original_tokens = decode_to_token(x[:2], args.inv_alph)
-        print(original_tokens[0])
-
-        print('Adversarial example:')
-        # Get nearest neighbour indices/tokens
-        nearest_idx, nearest_tokens = nearest_neighbours(\
-                                    args.embeddings, adv_embeddings[:2],
-                                    args.inv_alph, args.alphabet,args)
-        print(nearest_tokens[0])
-        print('*'*80)
-
-        # print(' !!!!!! ACTUAL !!!!!!''')
-        # _ = decode_to_natural_lang(x[0],args)
-        # print(' !!!!!! ADVERSARIAL !!!!!!''')
-        # _ = decode_to_natural_lang(adv_out[0],args)
-
-def decode_to_token(x, idx_to_tok):
-    """
-    Given a batch of embeddings, returns string tokens
-    Args:
-        x: (Tensor) size [batch, seq length, emb size]
-        idx_to_tok: (list) return the string token given index where the index
-                    matches to the embedding index
-    """
-    x_tokens = []
-    # Loop sequences
-    for j in range(x.shape[0]):
-        seq_tokens = []
-        for i, word in enumerate(x[j]):
-            seq_tokens.append(idx_to_tok[x[j,i]])
-            sentence = ' '.join(seq_tokens[:])
-        x_tokens.append(sentence)
-    return x_tokens
 
 
 def soft_reward(pred, targ):

@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import json, os
+import datetime
 import argparse
 import ipdb
 from PIL import Image
@@ -247,6 +248,8 @@ if __name__ == '__main__':
     # Bells
     padd('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
+    padd('--save_adv_samples', action='store_true', default=False,
+                            help='Write adversarial samples to disk')
     padd("--comet", action="store_true", default=False,
             help='Use comet for logging')
     padd("--comet_username", type=str, default="joeybose",
@@ -267,6 +270,7 @@ if __name__ == '__main__':
                     help='gpu number')
     args = parser.parse_args()
     args.classes = 2
+    args.sample_file = "temp/adv_samples.txt"
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)
@@ -277,6 +281,14 @@ if __name__ == '__main__':
             data = json.load(f)
         args.comet_apikey = data["apikey"]
         args.comet_username = data["username"]
+
+    # Prep file to save samples
+    if args.save_adv_samples:
+        now = datetime.datetime.now()
+        if os.path.exists(args.sample_file):
+            os.remove(args.sample_file)
+        with open(args.sample_file, 'w') as f:
+            f.write("Adversarial samples starting:\n{}\n".format(now))
 
     # No set_trace ;)
     if args.debug is False:

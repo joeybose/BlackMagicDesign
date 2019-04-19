@@ -23,6 +23,7 @@ import os
 import models
 import ipdb
 from dataHelper import*
+from tools.nearest import nearest_neighbours
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 UNKNOWN_IDX = 0
@@ -277,6 +278,108 @@ def evaluate(model, iterator):
             epoch_loss += loss.item()
             epoch_acc += acc.item()
         print('No Adv Evaluation loss: ',epoch_loss / len(iterator),'Eval accuracy: ' ,epoch_acc / len(iterator))
+
+def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
+    """
+    Args:
+        iterator: (dataloader iterator) to iterate test batches
+        model: target model
+        G: adversarial model
+        num_samples: (int) samples evaluated, if None, all samples evaluated
+    """
+    # Get target model predictions with:
+    # - original input
+    # - perturbed embeddings
+    # - nearest neighbour tokens from perturbed embeddings
+    with torch.no_grad():
+        for i, batch in enumerate(iterator):
+            x, y = batch['text'].to(args.device), batch['labels'].to(args.device)
+            x, y = x[:2], y[:2]
+            original_pred = model(x).squeeze(1)
+            prob_orig, idx = torch.max(F.softmax(original_pred,dim=1), 1)
+            correct_orig = idx.eq(y)
+            original_tokens, mask = decode_to_token(x, args.inv_alph, args)
+
+            # Get input emb from target model
+            input_embeddings = model.get_embeds(x).detach()
+
+            # Attack model perturbation
+            delta_embeddings, kl_div = G(x)
+
+            # Adversarial embeddings: combine input and perturb
+            adv_embeddings = input_embeddings + delta_embeddings
+
+            # Target predictions with adversarial embeddings
+            adv_emb_preds = model(adv_embeddings,use_embed=True)
+            prob_adv_emb, idx = torch.max(F.softmax(adv_emb_preds,dim=1), 1)
+            correct_adv_emb = idx.eq(y)
+
+            # Target predictions with adversarial tokens
+            adv_x = nearest_neighbours(\
+                        args.embeddings, adv_embeddings, args, mask)
+            adv_x = adv_x.type(x.dtype) # data type match
+            adv_tok_preds = model(adv_x).squeeze(1)
+            prob_adv_tok, idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
+            correct_adv_tok = idx.eq(y)
+            break
+
+    print('*'*80)
+    print('Epoch: {}'.format(epoch))
+    print('Prediction on original input: {}'.format(prob_orig[0]))
+    print('Prediction on perturbed input embedding: {}'.format(adv_emb_preds[0]))
+    print('Prediction on nearest neighbour tokens: {}'.format(adv_tok_preds[0]))
+    print('Original example:')
+    original_tokens, mask = decode_to_token(x, args.inv_alph, args)
+    print(original_tokens[0])
+
+    print('Adversarial example:')
+    # Get nearest neighbour indices/tokens
+    nearest_tokens, _ = decode_to_token(adv_x, args.inv_alph, args,mask)
+    print(nearest_tokens[0])
+    print('*'*80)
+
+    # Append samples to file
+    if args.save_adv_samples:
+        with open(args.sample_file, 'a') as f:
+            f.write('*'*80 + '\n')
+            f.write('Epoch: {}\n'.format(epoch))
+            f.write('Prediction on original input: {}\n'.format(prob_orig[0]))
+            f.write('Prediction on perturbed input embedding: {}\n'.format(\
+                                                              prob_adv_emb[0]))
+            f.write('Prediction on nearest neighbour tokens: {}'.format(\
+                                                              prob_adv_tok[0]))
+            f.write('Original example:\n')
+            f.write(original_tokens[0] + '\n')
+            f.write('Adversarial example:\n')
+            f.write(nearest_tokens[0] + '\n')
+            f.write('*'*80 + '\n')
+
+def decode_to_token(x, idx_to_tok, args, mask=None):
+    """
+    Given a batch of embeddings, returns string tokens. Masked items will be
+    removed from output. If no mask is provided, it will be created on-the-fly
+    and returned.
+
+    Args:
+        x: (Tensor) size [batch, seq length, emb size]
+        idx_to_tok: (list) return the string token given index where the index
+                    matches to the embedding index
+        mask: (Tensor) same shape as `x`
+    """
+    # Create mask
+    if mask is None:
+        mask = torch.where(x > 0, torch.tensor([1.]).to(args.device),
+                                            torch.tensor([0.]).to(args.device))
+    x_tokens = []
+    # Loop sequences
+    for j in range(x.shape[0]):
+        seq_tokens = []
+        for i, word in enumerate(x[j]):
+            if float(mask[j,i]) > 0:
+                seq_tokens.append(idx_to_tok[int(x[j,i])])
+        sentence = ' '.join(seq_tokens[:])
+        x_tokens.append(sentence)
+    return x_tokens, mask
 
 def load_unk_model(args,train_itr,test_itr):
     """
