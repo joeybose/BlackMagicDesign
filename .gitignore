@@ -8,6 +8,7 @@ BMD_text/saved_models/*
 settings.json
 *.txt
 
+./BMD_graph/a=__pycache__/
 ./BMD_text/saved_models/cnn_.pt
 ./BMD_text/saved_models/lstm_.pt
 ./BMD_text/saved_models/lstm.pt
