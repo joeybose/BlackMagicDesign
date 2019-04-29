@@ -293,7 +293,8 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
     # - nearest neighbour tokens from perturbed embeddings
     with torch.no_grad():
         for i, batch in enumerate(iterator):
-            x, y = batch['text'].to(args.device), batch['labels'].to(args.device)
+            x = batch['text'].to(args.device)
+            y = batch['labels'].to(args.device)
             x, y = x[:2], y[:2]
             original_pred = model(x).squeeze(1)
             prob_orig, idx = torch.max(F.softmax(original_pred,dim=1), 1)
@@ -323,36 +324,31 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
             correct_adv_tok = idx.eq(y)
             break
 
-    print('*'*80)
-    print('Epoch: {}'.format(epoch))
-    print('Prediction on original input: {}'.format(prob_orig[0]))
-    print('Prediction on perturbed input embedding: {}'.format(adv_emb_preds[0]))
-    print('Prediction on nearest neighbour tokens: {}'.format(adv_tok_preds[0]))
-    print('Original example:')
+    # Save results to string, so easy to print and write to file
+    results = '*'*80 + '\n'
+    results += 'Epoch: {}\n'.format(epoch)
+    results += 'Pred. on original input: {}, correct class? {}\n'.format(\
+                                                prob_orig[0], correct_orig[0])
+    results += 'Pred. on perturbed embed.: {}, correct class? {}\n'.format(\
+                                        prob_adv_emb[0], correct_adv_emb[0])
+    results += 'Pred. on nearest neighbour tokens: {}, correct class? {}\n'.format(\
+                                        prob_adv_tok[0], correct_adv_tok[0])
+    results += 'Original example:\n'
     original_tokens, mask = decode_to_token(x, args.inv_alph, args)
-    print(original_tokens[0])
+    results += original_tokens[0] + '\n'
 
-    print('Adversarial example:')
+    results += 'Adversarial example:\n'
     # Get nearest neighbour indices/tokens
     nearest_tokens, _ = decode_to_token(adv_x, args.inv_alph, args,mask)
-    print(nearest_tokens[0])
-    print('*'*80)
+    results += nearest_tokens[0] + '\n'
+    results += '*'*80 + '\n'
+    print(results)
 
     # Append samples to file
     if args.save_adv_samples:
         with open(args.sample_file, 'a') as f:
-            f.write('*'*80 + '\n')
-            f.write('Epoch: {}\n'.format(epoch))
-            f.write('Prediction on original input: {}\n'.format(prob_orig[0]))
-            f.write('Prediction on perturbed input embedding: {}\n'.format(\
-                                                              prob_adv_emb[0]))
-            f.write('Prediction on nearest neighbour tokens: {}'.format(\
-                                                              prob_adv_tok[0]))
-            f.write('Original example:\n')
-            f.write(original_tokens[0] + '\n')
-            f.write('Adversarial example:\n')
-            f.write(nearest_tokens[0] + '\n')
-            f.write('*'*80 + '\n')
+            f.write(results)
+        print("====Saved results to file===")
 
 def decode_to_token(x, idx_to_tok, args, mask=None):
     """
