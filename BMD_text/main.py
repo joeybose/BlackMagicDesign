@@ -4,6 +4,7 @@ from __future__ import print_function
 import json, os
 import datetime
 import argparse
+from types import MethodType
 import ipdb
 from PIL import Image
 from comet_ml import Experiment
@@ -250,6 +251,8 @@ if __name__ == '__main__':
                         help='disables CUDA training')
     padd('--save_adv_samples', action='store_true', default=False,
                             help='Write adversarial samples to disk')
+    padd('--nearest_neigh_all', action='store_true', default=False,
+                          help='Evaluate near. neig. for whole evaluation set')
     padd("--comet", action="store_true", default=False,
             help='Use comet for logging')
     padd("--comet_username", type=str, default="joeybose",
@@ -300,6 +303,11 @@ if __name__ == '__main__':
                 project_name="black-magic-design",\
                 workspace=args.comet_username)
         experiment.set_name(args.namestr)
+        def log_text(self, msg):
+            # Change line breaks for html breaks
+            msg = msg.replace('\n','<br>')
+            self.log_html("<p>{}</p>".format(msg))
+        experiment.log_text = MethodType(log_text, experiment)
         args.experiment = experiment
 
     main(args)
