@@ -3,6 +3,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import collections
+from datetime import datetime
 import torch
 import pickle
 import dataHelper
@@ -291,14 +292,23 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
     # - original input
     # - perturbed embeddings
     # - nearest neighbour tokens from perturbed embeddings
+    t1 = datetime.now()
+    correct_orig = []
+    correct_adv_emb = []
+    correct_adv_tok = []
+    tokens_changed_perc = []
     with torch.no_grad():
         for i, batch in enumerate(iterator):
             x = batch['text'].to(args.device)
             y = batch['labels'].to(args.device)
-            x, y = x[:2], y[:2]
+            if args.nearest_neigh_all == False:
+                last_idx = 3
+            else:
+                last_idx = len(x)
+            x, y = x[:last_idx], y[:last_idx]
             original_pred = model(x).squeeze(1)
             prob_orig, idx = torch.max(F.softmax(original_pred,dim=1), 1)
-            correct_orig = idx.eq(y)
+            correct_orig.extend(idx.eq(y).cpu().numpy().tolist())
             original_tokens, mask = decode_to_token(x, args.inv_alph, args)
 
             # Get input emb from target model
@@ -313,7 +323,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
             # Target predictions with adversarial embeddings
             adv_emb_preds = model(adv_embeddings,use_embed=True)
             prob_adv_emb, idx = torch.max(F.softmax(adv_emb_preds,dim=1), 1)
-            correct_adv_emb = idx.eq(y)
+            correct_adv_emb.extend(idx.eq(y).cpu().numpy().tolist())
 
             # Target predictions with adversarial tokens
             adv_x = nearest_neighbours(\
@@ -321,17 +331,40 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
             adv_x = adv_x.type(x.dtype) # data type match
             adv_tok_preds = model(adv_x).squeeze(1)
             prob_adv_tok, idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
-            correct_adv_tok = idx.eq(y)
-            break
+            correct_adv_tok.extend(idx.eq(y).cpu().numpy().tolist())
+            # Percent of changed tokens
+            changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
+            tokens_changed_perc.append(changed)
+            if args.nearest_neigh_all == False:
+                break
 
+
+    accuracies = {
+            "acc unperturbed" : sum(correct_orig)/len(correct_orig),
+            "acc adv emb": sum(correct_adv_emb)/len(correct_adv_emb),
+            "acc adv tok": sum(correct_adv_tok)/len(correct_adv_tok),
+            "perc tok changed": sum(tokens_changed_perc)/len(tokens_changed_perc)
+            }
+
+    t2 = datetime.now()
     # Save results to string, so easy to print and write to file
+    # TODO: add number of flipped tokens
     results = '*'*80 + '\n'
     results += 'Epoch: {}\n'.format(epoch)
-    results += 'Pred. on original input: {}, correct class? {}\n'.format(\
+
+    results += '**Result on full test set**\n'
+    time_diff = (t2-t1).total_seconds()/60.0
+    results += 'Time to evaluate: {:.2f} minutes\n'.format(time_diff)
+    results += 'Test set size: {}\n'.format(len(correct_orig))
+    for k, v in accuracies.items():
+        results += '{:s} : {:0.2f}\n'.format(k,v)
+
+    results += '**Result on single test set example**\n'
+    results += 'Pred. on original input: {:0.2f}, correct class? {:d}\n'.format(\
                                                 prob_orig[0], correct_orig[0])
-    results += 'Pred. on perturbed embed.: {}, correct class? {}\n'.format(\
+    results += 'Pred. on perturbed embed.: {:0.2f}, correct class? {:d}\n'.format(\
                                         prob_adv_emb[0], correct_adv_emb[0])
-    results += 'Pred. on nearest neighbour tokens: {}, correct class? {}\n'.format(\
+    results += 'Pred. on nearest neighbour tokens: {:0.2f}, correct class? {:d}\n'.format(\
                                         prob_adv_tok[0], correct_adv_tok[0])
     results += 'Original example:\n'
     original_tokens, mask = decode_to_token(x, args.inv_alph, args)
@@ -349,6 +382,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
         with open(args.sample_file, 'a') as f:
             f.write(results)
         print("====Saved results to file===")
+    return results, accuracies
 
 def decode_to_token(x, idx_to_tok, args, mask=None):
     """
