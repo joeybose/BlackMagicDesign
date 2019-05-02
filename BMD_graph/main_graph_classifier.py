@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl import DGLGraph
 from dgl.data import register_data_args, load_data
+import ipdb
 
 from models import GCN
 #from gcn_mp import GCN
@@ -77,9 +78,12 @@ def main(args):
                 args.n_layers,
                 F.relu,
                 args.dropout)
-
+    ipdb.set_trace()
+    model.load_state_dict(torch.load('saved_models/graph_classifier.pt'))
     if cuda:
         model.cuda()
+    acc = evaluate(model, features, labels, test_mask)
+    print("Test Accuracy {:.4f}".format(acc))
     loss_fcn = torch.nn.CrossEntropyLoss()
 
     # use optimizer
@@ -112,6 +116,7 @@ def main(args):
     print()
     acc = evaluate(model, features, labels, test_mask)
     print("Test Accuracy {:.4f}".format(acc))
+    torch.save(model.state_dict(),'saved_models/graph_classifier.pt')
 
 
 if __name__ == '__main__':
