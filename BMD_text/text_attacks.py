@@ -1,3 +1,4 @@
+import datetime
 from PIL import Image
 from torchvision import transforms
 from torch import autograd
@@ -372,6 +373,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
     utils.evaluate(model,test_loader)
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
+        print(datetime.now())
         train_itr = tqdm(enumerate(train_loader),\
                 total=len(train_loader)/args.batch_size)
         correct = 0
@@ -422,14 +424,21 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     break
             correct += out.eq(y.data).sum()
 
-        utils.evaluate_neighbours(test_loader, model, G, args, epoch)
+        # Get examples of nearest neighbour text and scores
+        neig_eg, test_accuracies = utils.evaluate_neighbours(test_loader,
+                                                        model, G, args, epoch)
         if args.comet:
+            args.experiment.log_text(neig_eg)
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
             args.experiment.log_metric("Whitebox Recon loss",loss_perturb,step=epoch)
             args.experiment.log_metric("Whitebox Misclassification loss",\
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
                     100.*correct/len(train_loader.dataset),step=epoch)
+
+            # Log orig accuracy, perturbed emb acc and perturbed tok acc
+            for k, v in test_accuracies.items():
+                args.experiment.log_metric(k, v,step=epoch)
         print("Misclassification Loss: %f Perturb Loss %f" %(\
                                                 loss_misclassify,loss_perturb))
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
