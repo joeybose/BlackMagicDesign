@@ -369,13 +369,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
     if args.train_ae:
         print("Doing Burn in VAE")
         train_ae(args, train_loader, G)
-
     utils.evaluate(model,test_loader)
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         print(datetime.now())
         train_itr = tqdm(enumerate(train_loader),\
-                total=len(train_loader)/args.batch_size)
+                total=len(train_loader.dataset)/args.batch_size)
         correct = 0
         ntokens = len(args.alphabet)
         # L2_test_model(args,epoch,test_loader,model,G)

@@ -278,7 +278,7 @@ def evaluate(model, iterator):
             acc = correct.sum().float() /len(correct)
             epoch_loss += loss.item()
             epoch_acc += acc.item()
-        print('No Adv Evaluation loss: ',epoch_loss / len(iterator),'Eval accuracy: ' ,epoch_acc / len(iterator))
+        print('No Adv Evaluation loss: ',epoch_loss / len(iterator.dataset),'Eval accuracy: ' ,epoch_acc / len(iterator.dataset))
 
 def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
     """
