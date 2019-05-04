@@ -194,11 +194,11 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,adv_image,"Adv.png",normalize=True)
         plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
 
-def L2_test_model(args,features,labels,adj_mat,test_mask,data,model,G):
+def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G):
     ''' Testing Phase '''
     correct_test = 0
-    delta, kl_div  = G(features,adj_mat)
-    kl_div = kl_div.sum() / len(features)
+    with torch.no_grad():
+        delta, kl_div  = G(features,adj_mat)
     adv_inputs = features.detach() + delta
     logits = model(adv_inputs)
     pred = logits[test_mask]
@@ -209,6 +209,9 @@ def L2_test_model(args,features,labels,adj_mat,test_mask,data,model,G):
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
             .format(correct_test, len(labels_test),\
                 100. * correct_test / len(labels_test)))
+    if args.comet:
+        args.experiment.log_metric("Test Adv Accuracy",\
+                100.*correct_test/len(labels_test),step=epoch)
 
 def carlini_wagner_loss(args, output, target, scale_const=1):
     # compute the probability of the label class versus the maximum other
@@ -306,9 +309,6 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         correct = 0
-        # if epoch % 10 == 0:
-            # L2_test_model(args,features,labels,adj_mat,test_mask,data,model,G)
-        # while loss_misclassify > 0 and loss_perturb > 1:
         delta, kl_div  = G(features,adj_mat)
         kl_div = kl_div.sum() / len(features)
         adv_inputs = features.detach() + delta
@@ -336,7 +336,7 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
                 .format(epoch,\
                     loss, loss_perturb, correct, len(labels_train),
                     100. * correct / len(labels_train)))
-        L2_test_model(args,features,labels,adj_mat,test_mask,data,model,G)
+        L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G)
 
 def soft_reward(pred, targ):
     """
