@@ -25,7 +25,6 @@ from tqdm import tqdm
 from utils import *
 import ipdb
 from advertorch.attacks import LinfPGDAttack
-from tools.nearest import nearest_neighbours
 
 def whitebox_pgd(args, image, target, model, normalize=None):
     adversary = LinfPGDAttack(

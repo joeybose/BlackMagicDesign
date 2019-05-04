@@ -3,8 +3,64 @@ Various nearest neighbour algorithms for dense word vectors
 """
 import torch
 
-def nearest_neighbours(emb_array, batch, args, mask=None, near=1):
+class NearestNeighbours():
+    def __init__(self, emb_array, device):
+        """
+        Computing cosine sim on vector and vocab every time is too costly. We
+        can speed up computation by storing intermediates and change the order
+        of the computation.
+        """
+        emb_array = torch.Tensor(emb_array).to(device)
+        self.normalized_emb = self.normalize_matrix(emb_array)
+        self.device = device
+
+    def normalize_matrix(self, array):
+        """
+        Returns: array / euclidean_norm(array)
+        """
+        # Get embedding norm and normalize
+        norm = torch.norm(array, dim=1)
+        normed = array / norm.view(len(norm),1)
+        return normed
+
+    def normalize_tensor(self, array):
+        """
+        Returns: tensor / euclidean_norm(tensor), norm along 3rd dim
+        """
+        # Get embedding norm and normalize
+        norm = torch.norm(array, dim=2)
+        normed = array / norm.view(norm.shape[0], norm.shape[1], 1)
+        return normed
+
+    def cosine_sim(self, batch):
+        # Loop word slice across batch
+        seq_len = batch.shape[1]
+        x = torch.zeros([batch.shape[0], batch.shape[1]]).to(self.device)
+        x = x.int()
+        for idx in range(seq_len):
+            words = batch[:,idx,:]
+            mult = words.matmul(self.normalized_emb.transpose(0,1))
+            nearest = torch.argmax(mult, dim=1)
+            x[:,idx] = nearest
+        return x
+
+    def __call__(self, batch, mask=None):
+        # Normalize cos_simlize batch
+        batch = self.normalize_tensor(batch)
+
+        # Calc dist
+        cos_sim = self.cosine_sim(batch)
+
+        # Mask stuff
+        if mask is not None:
+            cos_sim = cos_sim * mask.int()
+
+        return cos_sim
+
+def old_nearest_neighbours(emb_array, batch, args, mask=None, near=1):
     """
+    WARNING: depracated, and garbage
+
     Returns nearest neighbour embeddings in index form. If mask is provided, 0
     indices will be ignored.
     Args:
@@ -14,8 +70,10 @@ def nearest_neighbours(emb_array, batch, args, mask=None, near=1):
                 `batch`
         """
     # Build list of distances and index in reference
-    cos = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
     emb_array = torch.Tensor(emb_array).to(args.device)
+
+    # OLD
+    cos = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
     s = len(emb_array)
     nearest_idx = torch.zeros((batch.shape[:2])).to(args.device)
     # Loop sequences
@@ -34,3 +92,6 @@ def nearest_neighbours(emb_array, batch, args, mask=None, near=1):
             max_score = score.argmax()
             nearest_idx[j, i] = max_score
     return nearest_idx
+
+
+

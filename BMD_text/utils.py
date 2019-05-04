@@ -24,7 +24,7 @@ import os
 import models
 import ipdb
 from dataHelper import*
-from tools.nearest import nearest_neighbours
+from tools.nearest import NearestNeighbours
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 UNKNOWN_IDX = 0
@@ -326,8 +326,11 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
             correct_adv_emb.extend(idx.eq(y).cpu().numpy().tolist())
 
             # Target predictions with adversarial tokens
-            adv_x = nearest_neighbours(\
-                        args.embeddings, adv_embeddings, args, mask)
+            nearest = NearestNeighbours(args.embeddings, args.device)
+            adv_x = nearest(adv_embeddings, mask)
+
+            # adv_x = nearest_neighbours(\
+                        # args.embeddings, adv_embeddings, args, mask)
             adv_x = adv_x.type(x.dtype) # data type match
             adv_tok_preds = model(adv_x).squeeze(1)
             prob_adv_tok, idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
