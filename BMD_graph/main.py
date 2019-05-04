@@ -15,14 +15,16 @@ from torchvision.utils import save_image
 import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
-import utils, attack_models, attacks
+import utils, attack_models, graph_attacks
 from utils import to_cuda
 import flows
 from torch.nn.utils import clip_grad_norm_
+from attack_models import GCNModelVAE
 
 def main(args):
     # Load data
     features, labels, train_mask, val_mask, test_mask, data = utils.get_data(args)
+    n_nodes = data.graph.number_of_nodes()
 
     # The unknown model to attack
     unk_model = utils.load_unk_model(args,data,features,labels)
@@ -40,32 +42,15 @@ def main(args):
     if args.white:
         # Choose Attack Function
         if args.no_pgd_optim:
-            white_attack_func = attacks.L2_white_box_generator
+            white_attack_func = graph_attacks.L2_white_box_generator
         else:
-            white_attack_func = attacks.PGD_white_box_generator
+            white_attack_func = graph_attacks.PGD_white_box_generator
 
-        # Choose Dataset
-        if args.mnist:
-            G = models.Generator(input_size=784).to(args.device)
-        elif args.cifar:
-            if args.vanilla_G:
-                G = models.DCGAN().to(args.device)
-                G = nn.DataParallel(G.generator)
-            else:
-                G = models.ConvGenerator(models.Bottleneck,[6,12,24,16],\
-                        growth_rate=12,flows=norm_flow,use_flow=args.use_flow).to(args.device)
-                G = nn.DataParallel(G)
-            nc,h,w = 3,32,32
-
-        # Test on a single data point or entire dataset
-        if args.single_data:
-            # pred, delta = attacks.single_white_box_generator(args, data, target, unk_model, G)
-            # pred, delta = attacks.white_box_untargeted(args, data, target, unk_model)
-            pred, delta = attacks.whitebox_pgd(args, data, target, unk_model,\
-                    nc, h, w)
-        else:
-            pred, delta = white_attack_func(args, train_loader,\
-                    test_loader, unk_model, G, nc, h, w)
+        G = GCNModelVAE(n_nodes,args.in_feats,args.n_hidden,args.n_hidden,args.dropout)
+        G = G.cuda()
+        # Attack !!!
+        white_attack_func(args, features, labels, train_mask, \
+                          val_mask, test_mask, data, unk_model, G)
 
     # # Blackbox Attack model
     # ipdb.set_trace()

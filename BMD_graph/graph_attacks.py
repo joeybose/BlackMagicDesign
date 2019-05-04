@@ -194,43 +194,21 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,adv_image,"Adv.png",normalize=True)
         plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
 
-def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
+def L2_test_model(args,features,labels,adj_mat,test_mask,data,model,G):
     ''' Testing Phase '''
-    test_itr = tqdm(enumerate(test_loader),\
-            total=len(test_loader.dataset)/args.batch_size)
     correct_test = 0
-    for batch_idx, (data, target) in test_itr:
-        x, target = data.to(args.device), target.to(args.device)
-        if not args.vanilla_G:
-            delta, kl_div  = G(x)
-        else:
-            delta = G(x)
-        delta = delta.view(delta.size(0), nc, h, w)
-        adv_inputs = x + delta
-        adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
-        pred = model(adv_inputs.detach())
-        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-        correct_test += out.eq(target.unsqueeze(1).data).sum()
+    delta, kl_div  = G(features,adj_mat)
+    kl_div = kl_div.sum() / len(features)
+    adv_inputs = features.detach() + delta
+    logits = model(adv_inputs)
+    pred = logits[test_mask]
+    labels_test = labels[test_mask]
+    _, indices = torch.max(pred, dim=1)
+    correct_test = torch.sum(indices.data.cpu() == labels_test)
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(test_loader.dataset),\
-                100. * correct_test / len(test_loader.dataset)))
-    if args.comet:
-        if not args.mnist:
-            index = np.random.choice(len(x) - 64, 1)[0]
-            clean_image = (x)[index:index+64].detach()
-            adv_image = (x + delta)[index:index+64].detach()
-            delta_image = (delta)[index:index+64].detach()
-        else:
-            clean_image = (x)[0].detach()
-            adv_image = (x + delta)[0].detach()
-            delta_image = (delta)[0].detach()
-        file_base = "adv_images/" + args.namestr + "/"
-        if not os.path.exists(file_base):
-            os.makedirs(file_base)
-        plot_image_to_comet(args,clean_image,file_base+"clean.png",normalize=True)
-        plot_image_to_comet(args,adv_image,file_base+"Adv.png",normalize=True)
-        plot_image_to_comet(args,delta_image,file_base+"delta.png",normalize=True)
+            .format(correct_test, len(labels_test),\
+                100. * correct_test / len(labels_test)))
 
 def carlini_wagner_loss(args, output, target, scale_const=1):
     # compute the probability of the label class versus the maximum other
@@ -301,8 +279,7 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
 
     return out, delta
 
-def L2_white_box_generator(args, train_loader, test_loader, model, G,\
-        nc=1,h=28,w=28):
+def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_mask, data, model, G):
     epsilon = args.epsilon
     opt = optim.Adam(G.parameters())
     if args.carlini_loss:
@@ -310,40 +287,42 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
     else:
         misclassify_loss_func = CE_loss_func
 
+    g = data.graph
+    # add self loop
+    if args.self_loop:
+        g.remove_edges_from(g.selfloop_edges())
+        g.add_edges_from(zip(g.nodes(), g.nodes()))
+    g = DGLGraph(g)
+
+    n_edges = g.number_of_edges()
+    # normalization
+    degs = g.in_degrees().float()
+    norm = torch.pow(degs, -0.5)
+    norm[torch.isinf(norm)] = 0
+    norm = norm.cuda()
+    g.ndata['norm'] = norm.unsqueeze(1)
+    adj_mat = g.adjacency_matrix().cuda()
+    features = features.cuda()
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
-        train_itr = tqdm(enumerate(train_loader),\
-                total=len(train_loader.dataset)/args.batch_size)
         correct = 0
-        L2_test_model(args,epoch,test_loader,model,G,nc,h,w)
-        for batch_idx, (data, target) in train_itr:
-            x, target = data.to(args.device), target.to(args.device)
-            num_unperturbed = 10
-            iter_count = 0
-            loss_perturb = 20
-            loss_misclassify = 10
-            while loss_misclassify > 0 and loss_perturb > 1:
-                if not args.vanilla_G:
-                    delta, kl_div  = G(x)
-                    kl_div = kl_div.sum() / len(x)
-                else:
-                    delta = G(x)
-                delta = delta.view(delta.size(0), nc, h, w)
-                adv_inputs = x.detach() + delta
-                adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
-                pred = model(adv_inputs)
-                out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-                loss_misclassify = misclassify_loss_func(args,pred,target) / len(x)
-                loss_perturb = L2_dist(x,adv_inputs) / len(x)
-                loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
-                iter_count = iter_count + 1
-                num_unperturbed = out.eq(target.unsqueeze(1).data).sum()
-                if iter_count > args.max_iter:
-                    break
-            correct += out.eq(target.unsqueeze(1).data).sum()
+        # if epoch % 10 == 0:
+            # L2_test_model(args,features,labels,adj_mat,test_mask,data,model,G)
+        # while loss_misclassify > 0 and loss_perturb > 1:
+        delta, kl_div  = G(features,adj_mat)
+        kl_div = kl_div.sum() / len(features)
+        adv_inputs = features.detach() + delta
+        logits = model(adv_inputs)
+        pred = logits[train_mask]
+        labels_train = labels[train_mask]
+        _, indices = torch.max(pred, dim=1)
+        correct = torch.sum(indices.data.cpu() == labels_train)
+        loss_misclassify = misclassify_loss_func(args,pred,labels_train.cuda()) / len(labels_train)
+        loss_perturb = L2_dist(features,adv_inputs) / len(features)
+        loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
 
         if args.comet:
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
@@ -351,14 +330,13 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
             args.experiment.log_metric("Whitebox Misclassification loss",\
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(train_loader.dataset),step=epoch)
+                    100.*correct/len(labels_train),step=epoch)
 
-        print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
+        print('\nTrain: Epoch:{} Loss: {:.4f}, Delta: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
-                    loss, correct, len(train_loader.dataset),
-                    100. * correct / len(train_loader.dataset)))
-
-    return out, delta
+                    loss, loss_perturb, correct, len(labels_train),
+                    100. * correct / len(labels_train)))
+        L2_test_model(args,features,labels,adj_mat,test_mask,data,model,G)
 
 def soft_reward(pred, targ):
     """
