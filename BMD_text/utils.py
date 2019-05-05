@@ -4,9 +4,10 @@ from __future__ import print_function
 
 import collections
 from datetime import datetime
-import torch
 import pickle
 import dataHelper
+import torch
+from torch import nn
 import torch.nn.functional as F
 import collections
 import sklearn
@@ -327,6 +328,8 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
 
             # Target predictions with adversarial tokens
             nearest = NearestNeighbours(args.embeddings, args.device)
+            if str(args.device) == 'cuda':
+                nearest = nn.DataParallel(nearest)
             adv_x = nearest(adv_embeddings, mask)
 
             # adv_x = nearest_neighbours(\

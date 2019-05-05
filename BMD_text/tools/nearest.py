@@ -2,16 +2,22 @@
 Various nearest neighbour algorithms for dense word vectors
 """
 import torch
+from torch import nn
 
-class NearestNeighbours():
+class NearestNeighbours(nn.Module):
     def __init__(self, emb_array, device):
         """
         Computing cosine sim on vector and vocab every time is too costly. We
         can speed up computation by storing intermediates and change the order
         of the computation.
         """
+        super().__init__()
+        # Normalize embedding (for faster cosine compute)
         emb_array = torch.Tensor(emb_array).to(device)
-        self.normalized_emb = self.normalize_matrix(emb_array)
+        normalized_emb = self.normalize_matrix(emb_array)
+        # Must make Parameter in order to parallelize
+        self.normalized_emb = nn.Parameter(normalized_emb, requires_grad=False)
+        self.register_parameter('embeddings', self.normalized_emb)
         self.device = device
 
     def normalize_matrix(self, array):
@@ -36,20 +42,23 @@ class NearestNeighbours():
         """
         Compute consine efficiently. Assumes `batch is already euclidean
         normalized as well as embedding tensor
+
+        Cosine Similarity:
+        <x, y> / ||x||*||y||
         """
-        # Placeholder for results
-        # Reshape to do a single matrix mult
         batch_size, seq_len = batch.shape[0], batch.shape[1]
         emb_size = self.normalized_emb.shape[1]
+        # Reshape to do a single matrix mult
         batch = batch.view(-1, emb_size)
+        # Cosine-sim's dot product
         mult = batch.matmul(self.normalized_emb.transpose(0,1))
 
-        del batch # desperate attempt
+        del batch # desperate attempt to free memory
         nearest = torch.argmax(mult, dim=1)
         nearest = nearest.view(batch_size, seq_len)
         return nearest
 
-    def __call__(self, batch, mask=None):
+    def forward(self, batch, mask=None):
         # Normalize batch. If normalize after dot product, mem explodes
         batch = self.normalize_tensor(batch)
 
@@ -60,8 +69,8 @@ class NearestNeighbours():
         if mask is not None:
             # Make sure types match
             cos_sim = cos_sim.int() * mask.int()
-
         return cos_sim
+
 
 def old_nearest_neighbours(emb_array, batch, args, mask=None, near=1):
     """
