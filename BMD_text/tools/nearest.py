@@ -33,16 +33,29 @@ class NearestNeighbours():
         return normed
 
     def cosine_sim(self, batch):
+        """
+        Compute consine efficiently. Assumes `batch is already euclidean
+        normalized as well as embedding tensor
+        """
+        # Placeholder for results
+        # Reshape to do a single matrix mult
+        batch_size, seq_len = batch.shape[0], batch.shape[1]
+        emb_size = self.normalized_emb.shape[1]
+        batch = batch.view(-1, emb_size)
+        mult = batch.matmul(self.normalized_emb.transpose(0,1))
+        nearest = torch.argmax(mult, dim=1)
+        nearest = nearest.view(batch_size, seq_len)
+        return nearest
+
+        # x = torch.zeros([batch.shape[0], batch.shape[1]]).to(self.device).int()
         # Loop word slice across batch
-        seq_len = batch.shape[1]
-        x = torch.zeros([batch.shape[0], batch.shape[1]]).to(self.device)
-        x = x.int()
-        for idx in range(seq_len):
-            words = batch[:,idx,:]
-            mult = words.matmul(self.normalized_emb.transpose(0,1))
-            nearest = torch.argmax(mult, dim=1)
-            x[:,idx] = nearest
-        return x
+        # seq_len = batch.shape[1]
+        # for idx in range(seq_len):
+            # words = batch[:,idx,:]
+            # mult = words.matmul(self.normalized_emb.transpose(0,1))
+            # nearest = torch.argmax(mult, dim=1)
+            # x[:,idx] = nearest
+        # return x
 
     def __call__(self, batch, mask=None):
         # Normalize cos_simlize batch
@@ -53,7 +66,8 @@ class NearestNeighbours():
 
         # Mask stuff
         if mask is not None:
-            cos_sim = cos_sim * mask.int()
+            # Make sure types match
+            cos_sim = cos_sim.int() * mask.int()
 
         return cos_sim
 
