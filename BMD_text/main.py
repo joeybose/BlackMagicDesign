@@ -163,8 +163,8 @@ if __name__ == '__main__':
                     help='embedding_dim')
     padd('--embedding_type', type=str, default="non-static",
                     help='embedding_type')
-    padd('--test_batch_size', type=int, default=512, metavar='S',
-                        help='Test Batch size')
+    padd('--test_batch_size', type=int, default=128, metavar='S',
+                        help='Test Batch size. 256 requires 12GB GPU memory')
     padd('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
     padd('--clip_grad', default=True, action='store_true',

@@ -43,22 +43,14 @@ class NearestNeighbours():
         emb_size = self.normalized_emb.shape[1]
         batch = batch.view(-1, emb_size)
         mult = batch.matmul(self.normalized_emb.transpose(0,1))
+
+        del batch # desperate attempt
         nearest = torch.argmax(mult, dim=1)
         nearest = nearest.view(batch_size, seq_len)
         return nearest
 
-        # x = torch.zeros([batch.shape[0], batch.shape[1]]).to(self.device).int()
-        # Loop word slice across batch
-        # seq_len = batch.shape[1]
-        # for idx in range(seq_len):
-            # words = batch[:,idx,:]
-            # mult = words.matmul(self.normalized_emb.transpose(0,1))
-            # nearest = torch.argmax(mult, dim=1)
-            # x[:,idx] = nearest
-        # return x
-
     def __call__(self, batch, mask=None):
-        # Normalize cos_simlize batch
+        # Normalize batch. If normalize after dot product, mem explodes
         batch = self.normalize_tensor(batch)
 
         # Calc dist

@@ -477,7 +477,6 @@ def get_data(args, prepared_data):
         return train_iter, test_iter
 
     train_data, test_data = read_imdb(data_path), read_imdb(data_path, 'test')
-    batch_size = args.batch_size
     vocab = get_vocab_imdb(train_data)
     print('vocab_size:', len(vocab))
     args.vocab_size = len(vocab)
@@ -487,9 +486,9 @@ def get_data(args, prepared_data):
     test_data, test_labels = preprocess_imdb(test_data, vocab, MAX_LEN)
     trainset = IMDBDataset(train_data,train_labels)
     testset = IMDBDataset(test_data,test_labels)
-    train_iter = DataLoader(trainset, batch_size=batch_size,
+    train_iter = DataLoader(trainset, batch_size=args.batch_size,
 			    shuffle=True, num_workers=4)
-    test_iter = DataLoader(testset, batch_size=batch_size,
+    test_iter = DataLoader(testset, batch_size=args.test_batch_size,
 			    shuffle=True, num_workers=4)
 
     glove_file = os.path.join( ".vector_cache","glove.6B.300d.txt")
