@@ -194,24 +194,38 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,adv_image,"Adv.png",normalize=True)
         plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
 
-def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G):
+def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,\
+                  data,model,G,target_mask=None,attack_mask=None):
+
     ''' Testing Phase '''
     correct_test = 0
+    if args.attack_adj:
+        x = adj_mat
+    else:
+        x = features
+
     with torch.no_grad():
         delta, kl_div  = G(features,adj_mat)
+        if args.influencer_attack:
+            delta = delta*attack_mask
+
     adv_inputs = features.detach() + delta
     logits = model(adv_inputs)
-    pred = logits[test_mask]
-    labels_test = labels[test_mask]
+    if args.influencer_attack:
+        pred = logits[target_mask]
+        masked_labels = labels[target_mask]
+    else:
+        pred = logits[test_mask]
+        masked_labels = labels[test_mask]
     _, indices = torch.max(pred, dim=1)
-    correct_test = torch.sum(indices.data.cpu() == labels_test)
+    correct_test = torch.sum(indices.data.cpu() == masked_labels)
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(labels_test),\
-                100. * correct_test / len(labels_test)))
+            .format(correct_test, len(masked_labels),\
+                100. * correct_test / len(masked_labels)))
     if args.comet:
         args.experiment.log_metric("Test Adv Accuracy",\
-                100.*correct_test/len(labels_test),step=epoch)
+                100.*correct_test/len(masked_labels),step=epoch)
 
 def carlini_wagner_loss(args, output, target, scale_const=1):
     # compute the probability of the label class versus the maximum other
@@ -282,6 +296,16 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
 
     return out, delta
 
+def create_node_masks(labels,correct_indices,num_target_samples=40,num_attack_samples=200):
+    all_ids = set(range(len(labels)))
+    target_ids = np.random.choice(correct_indices,num_target_samples,replace=False)
+    attack_set = all_ids - set(target_ids)
+    attack_array = np.asarray(list(attack_set))
+    attack_ids = np.random.choice(attack_array,num_attack_samples,replace=False)
+    target_mask = torch.ByteTensor(sample_mask(target_ids, labels.shape[0]))
+    attack_mask = torch.ByteTensor(sample_mask(attack_ids, labels.shape[0]))
+    return target_mask.cuda(), attack_mask.cuda()
+
 def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_mask, data, model, G):
     epsilon = args.epsilon
     opt = optim.Adam(G.parameters())
@@ -306,18 +330,49 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
     g.ndata['norm'] = norm.unsqueeze(1)
     adj_mat = g.adjacency_matrix().cuda()
     features = features.cuda()
+
+    if args.attack_adj:
+        x = adj_mat
+    else:
+        x = features
+
+    ''' Create Masks '''
+    target_mask, attack_mask = None,None
+    if args.influencer_attack:
+        all_mask = torch.ByteTensor(sample_mask(range(len(labels)), labels.shape[0]))
+        acc, correct_indices = evaluate(model, features.cuda(), labels, all_mask)
+        target_mask, attack_mask = create_node_masks(labels,correct_indices.squeeze().cpu().numpy())
+        attack_mask = attack_mask.unsqueeze(1).float()
+        attack_mask = attack_mask.repeat(1,features.shape[1])
+
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         correct = 0
         delta, kl_div  = G(features,adj_mat)
         kl_div = kl_div.sum() / len(features)
+
+        ''' Projection Step '''
+        # ipdb.set_trace()
+        if args.influencer_attack:
+            delta = delta*attack_mask
+
         adv_inputs = features.detach() + delta
+
+        if args.attack_adj:
+            model.g = adv_inputs
+
         logits = model(adv_inputs)
-        pred = logits[train_mask]
-        labels_train = labels[train_mask]
+
+        if args.influencer_attack:
+            pred = logits[target_mask]
+            masked_labels = labels[target_mask]
+        else:
+            pred = logits[train_mask]
+            masked_labels = labels[train_mask]
+
         _, indices = torch.max(pred, dim=1)
-        correct = torch.sum(indices.data.cpu() == labels_train)
-        loss_misclassify = misclassify_loss_func(args,pred,labels_train.cuda()) / len(labels_train)
+        correct = torch.sum(indices.data.cpu() == masked_labels)
+        loss_misclassify = misclassify_loss_func(args,pred,masked_labels.cuda()) / len(masked_labels)
         loss_perturb = L2_dist(features,adv_inputs) / len(features)
         loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
         opt.zero_grad()
@@ -330,13 +385,13 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
             args.experiment.log_metric("Whitebox Misclassification loss",\
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(labels_train),step=epoch)
+                    100.*correct/len(masked_labels),step=epoch)
 
         print('\nTrain: Epoch:{} Loss: {:.4f}, Delta: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
-                    loss, loss_perturb, correct, len(labels_train),
-                    100. * correct / len(labels_train)))
-        L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G)
+                    loss, loss_perturb, correct, len(masked_labels),
+                    100. * correct / len(masked_labels)))
+        L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G,target_mask,attack_mask)
 
 def soft_reward(pred, targ):
     """

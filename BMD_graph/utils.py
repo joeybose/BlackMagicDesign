@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torchvision
 from torch import nn, optim
@@ -25,19 +26,6 @@ def reduce_sum(x, keepdim=True):
 def L2_dist(x, y):
     return reduce_sum((x - y)**2)
 
-class Normalize(nn.Module):
-    """
-    Normalize an image as part of a torch nn.Module
-    """
-    def __init__(self, mean, std):
-        super(Normalize, self).__init__()
-        self.mean = torch.Tensor(mean)
-        self.std = torch.Tensor(std)
-    def forward(self, x):
-        num = (x - self.mean.type_as(x)[None,:,None,None])
-        denom = self.std.type_as(x)[None,:,None,None]
-        return num / denom
-
 def to_cuda(model):
     cuda_stat = torch.cuda.is_available()
     if cuda_stat:
@@ -51,21 +39,32 @@ def tensor_to_cuda(x):
         x = x.cuda()
     return x
 
-def display_tensor(tensor):
-    plt.imshow((tensor)[0].detach().numpy().transpose(1,2,0))
-    plt.show()
+def sample_mask(idx, l):
+    """Create mask."""
+    mask = np.zeros(l)
+    mask[idx] = 1
+    return mask
 
-def plot_image_to_comet(args,image,name,normalize):
-    batch_size,nc,h,w = image.shape
-    if args.mnist:
-        image = to_img(image.cpu().data,nc,h,w)
-    save_image(image, name, normalize=normalize)
-    args.experiment.log_image(name,overwrite=False)
+def evaluate(model, features, labels, mask):
+    model.eval()
+    with torch.no_grad():
+        logits = model(features)
+        logits = logits[mask]
+        labels = labels[mask]
+        _, indices = torch.max(logits, dim=1)
+        # correct = torch.sum(indices == labels.cuda())
+        results = (indices == labels.cuda())
+        correct = torch.sum(results)
+        correct_indices = (results != 0).nonzero()
+        return correct.item() * 1.0 / len(labels), correct_indices
 
 def get_data(args):
     """
     Data loader. For now, just a test sample
     """
+    args.syn_train_ratio = 0.1
+    args.syn_val_ratio = 0.1
+    args.syn_test_ratio = 0.8
     data = load_data(args)
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
@@ -89,6 +88,9 @@ def get_data(args):
     train_mask = train_mask.cuda()
     val_mask = val_mask.cuda()
     test_mask = test_mask.cuda()
+    stop_number = int(np.round(len(labels)*0.1))
+    attacker_mask = torch.ByteTensor(sample_mask(range(stop_number), labels.shape[0]))
+    target_mask = torch.ByteTensor(sample_mask(range(stop_number), labels.shape[0]))
     return features, labels, train_mask, val_mask, test_mask, data
 
 def load_unk_model(args,data,features,labels):
@@ -117,7 +119,9 @@ def load_unk_model(args,data,features,labels):
                 args.n_layers,
                 F.relu,
                 args.dropout).cuda()
+    load_file = 'saved_models/'+args.dataset+'_graph_classifier.pt'
     model.load_state_dict(torch.load('saved_models/graph_classifier.pt'))
+    # model.load_state_dict(torch.load(load_file))
     model.eval()
     return model
 
@@ -156,16 +160,6 @@ def train_classifier(args, model, device,features, labels, train_mask, val_mask,
     acc = evaluate(model, features, labels, test_mask)
     print("Test Accuracy {:.4f}".format(acc))
     torch.save(model.state_dict(),'saved_models/graph_classifier.pt')
-
-def evaluate(model, features, labels, mask):
-    model.eval()
-    with torch.no_grad():
-        logits = model(features)
-        logits = logits[mask]
-        labels = labels[mask]
-        _, indices = torch.max(logits, dim=1)
-        correct = torch.sum(indices == labels)
-        return correct.item() * 1.0 / len(labels)
 
 def freeze_model(model):
     model.eval()

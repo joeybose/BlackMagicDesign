@@ -97,14 +97,17 @@ class InnerProductDecoder(nn.Module):
         return adj
 
 class GCNModelVAE(nn.Module):
-    def __init__(self, n_nodes, input_feat_dim, hidden_dim1, hidden_dim2, dropout):
+    def __init__(self, attack_adj, n_nodes, input_feat_dim, hidden_dim1, hidden_dim2, dropout):
         super(GCNModelVAE, self).__init__()
         self.n_nodes = n_nodes
         self.gc1 = GraphConvolution(input_feat_dim, hidden_dim1, dropout, act=F.relu)
         self.gc2 = GraphConvolution(hidden_dim1, hidden_dim2, dropout, act=lambda x: x)
         self.gc3 = GraphConvolution(hidden_dim1, hidden_dim2, dropout, act=lambda x: x)
         # self.dc = InnerProductDecoder(dropout, act=lambda x: x)
-        self.dc = NodeFeatDecoder(n_nodes, hidden_dim2, input_feat_dim)
+        if not attack_adj:
+            self.dc = NodeFeatDecoder(n_nodes, hidden_dim2, input_feat_dim)
+        else:
+            self.dc = InnerProductDecoder(dropout, act=lambda x: x)
 
     def encode(self, x, adj):
         hidden1 = self.gc1(x, adj)

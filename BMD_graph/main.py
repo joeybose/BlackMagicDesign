@@ -46,7 +46,7 @@ def main(args):
         else:
             white_attack_func = graph_attacks.PGD_white_box_generator
 
-        G = GCNModelVAE(n_nodes,args.in_feats,args.n_hidden,args.n_hidden,args.dropout)
+        G = GCNModelVAE(args.attack_adj,n_nodes,args.in_feats,args.n_hidden,args.n_hidden,args.dropout)
         G = G.cuda()
         # Attack !!!
         white_attack_func(args, features, labels, train_mask, \
@@ -121,12 +121,6 @@ if __name__ == '__main__':
                         help='Input size for MNIST is default')
     parser.add_argument('--batch_size', type=int, default=256, metavar='S',
                         help='Batch size')
-    parser.add_argument('--test_batch_size', type=int, default=512, metavar='S',
-                        help='Test Batch size')
-    parser.add_argument('--test', default=False, action='store_true',
-                        help='just test model and print accuracy')
-    parser.add_argument('--clip_grad', default=True, action='store_true',
-                        help='Clip grad norm')
     parser.add_argument("--self-loop", action='store_true',
             help="graph self-loop (default=False)")
     parser.add_argument('--white', default=False, action='store_true',
@@ -135,12 +129,12 @@ if __name__ == '__main__':
                         help='Add A NF to Generator')
     parser.add_argument('--carlini_loss', default=False, action='store_true',
                         help='Use CW loss function')
+    parser.add_argument('--attack_adj', default=False, action='store_true',
+                        help='Modify the Adjacency Matrix of the Classifier')
+    parser.add_argument('--influencer_attack', default=False, action='store_true',
+                        help='Influencer attack like Zuegner et. al')
     parser.add_argument('--no_pgd_optim', default=False, action='store_true',
                         help='Use Lagrangian objective instead of PGD')
-    parser.add_argument('--vanilla_G', default=False, action='store_true',
-                        help='Vanilla G White Box')
-    parser.add_argument('--single_data', default=False, action='store_true',
-                        help='Test on a single data')
     # Bells
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')

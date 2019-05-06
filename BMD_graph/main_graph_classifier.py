@@ -7,9 +7,14 @@ from dgl import DGLGraph
 from dgl.data import register_data_args, load_data
 import ipdb
 
-from models import GCN
+from attack_models import GCN
 #from gcn_mp import GCN
 #from gcn_spmv import GCN
+def sample_mask(idx, l):
+    """Create mask."""
+    mask = np.zeros(l)
+    mask[idx] = 1
+    return mask
 
 def evaluate(model, features, labels, mask):
     model.eval()
@@ -23,12 +28,18 @@ def evaluate(model, features, labels, mask):
 
 def main(args):
     # load and preprocess dataset
+    args.syn_train_ratio = 0.1
+    args.syn_val_ratio = 0.1
+    args.syn_test_ratio = 0.8
+    print(args)
     data = load_data(args)
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
-    train_mask = torch.ByteTensor(data.train_mask)
+    stop_number = int(np.round(len(labels)*0.1))
+    train_mask = torch.ByteTensor(sample_mask(range(stop_number), labels.shape[0]))
+    # train_mask = torch.ByteTensor(data.train_mask)
     val_mask = torch.ByteTensor(data.val_mask)
-    test_mask = torch.ByteTensor(data.test_mask)
+    test_mask = torch.ByteTensor(sample_mask(range(500, 1500), labels.shape[0]))
     in_feats = features.shape[1]
     n_classes = data.num_labels
     n_edges = data.graph.number_of_edges()
@@ -78,8 +89,8 @@ def main(args):
                 args.n_layers,
                 F.relu,
                 args.dropout)
-    ipdb.set_trace()
-    model.load_state_dict(torch.load('saved_models/graph_classifier.pt'))
+    # ipdb.set_trace()
+    # model.load_state_dict(torch.load('saved_models/graph_classifier.pt'))
     if cuda:
         model.cuda()
     acc = evaluate(model, features, labels, test_mask)
@@ -116,7 +127,8 @@ def main(args):
     print()
     acc = evaluate(model, features, labels, test_mask)
     print("Test Accuracy {:.4f}".format(acc))
-    torch.save(model.state_dict(),'saved_models/graph_classifier.pt')
+    save_file = 'saved_models/'+args.dataset+'_graph_classifier.pt'
+    torch.save(model.state_dict(),save_file)
 
 
 if __name__ == '__main__':
@@ -128,7 +140,7 @@ if __name__ == '__main__':
             help="gpu")
     parser.add_argument("--lr", type=float, default=1e-2,
             help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=200,
+    parser.add_argument("--n-epochs", type=int, default=400,
             help="number of training epochs")
     parser.add_argument("--n-hidden", type=int, default=16,
             help="number of hidden gcn units")
@@ -138,6 +150,8 @@ if __name__ == '__main__':
             help="Weight for L2 loss")
     parser.add_argument("--self-loop", action='store_true',
             help="graph self-loop (default=False)")
+    # parser.add_argument("--dataset", type=str, default="cora",\
+                        # help="The input dataset. Can be cora, citeseer, pubmed, syn(synthetic dataset) or reddit")
     parser.set_defaults(self_loop=False)
     args = parser.parse_args()
     print(args)
