@@ -3,6 +3,7 @@ Various nearest neighbour algorithms for dense word vectors
 """
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 class NearestNeighbours(nn.Module):
     def __init__(self, emb_array, device):
@@ -38,11 +39,13 @@ class NearestNeighbours(nn.Module):
         normed = array / norm.view(norm.shape[0], norm.shape[1], 1)
         return normed
 
-    def cosine_sim(self, batch):
+    def cosine_sim(self, batch, return_all=False):
         """
         Compute consine efficiently. Assumes `batch is already euclidean
         normalized as well as embedding tensor
 
+        Args:
+            return_all: return cosine sim for all
         Cosine Similarity:
         <x, y> / ||x||*||y||
         """
@@ -56,6 +59,9 @@ class NearestNeighbours(nn.Module):
         del batch # desperate attempt to free memory
         nearest = torch.argmax(mult, dim=1)
         nearest = nearest.view(batch_size, seq_len)
+        if return_all:
+            return nearest, mult
+        # Return only nearest to save memory
         return nearest
 
     def forward(self, batch, mask=None):
@@ -63,14 +69,64 @@ class NearestNeighbours(nn.Module):
         batch = self.normalize_tensor(batch)
 
         # Calc dist
-        cos_sim = self.cosine_sim(batch)
+        nearest = self.cosine_sim(batch)
 
         # Mask stuff
         if mask is not None:
             # Make sure types match
-            cos_sim = cos_sim.int() * mask.int()
-        return cos_sim
+            nearest = nearest.int() * mask.int()
+        return nearest
 
+class DiffNearestNeighbours(NearestNeighbours):
+    def __init__(self, emb_array, device, diff_temp, decay_rate):
+        """
+        Differentiable Nearest Neighbour. As temperature decreases, converges
+        to nearest neighbour
+
+        Args:
+            nn_temp: softmax temp w/ nearest neighbour logits
+        """
+        super().__init__(emb_array, device)
+        # self.temp = torch.tensor(diff_temp, requires_grad=False).to(device)
+        # self.min_temp = torch.tensor(0.05, requires_grad=False).to(device)
+        self.temp = diff_temp
+        self.min_temp = 0.05
+        self.batch_count = 0
+        self.decay_rate = decay_rate
+
+    def temp_update(self):
+        self.batch_count += 1
+        if self.batch_count % self.decay_rate == 0:
+            self.temp=torch.min(self.temp*0.95, self.min_temp)
+
+    def forward(self, batch, mask=None):
+        # Maybe decay temp
+        self.temp_update()
+        shape = batch.shape
+
+        # Normalize batch. If normalize after dot product, mem explodes
+        batch = self.normalize_tensor(batch)
+
+        # Calc dist
+        nearest, cosine_sims = self.cosine_sim(batch, return_all=True)
+
+        # Mask stuff
+        if mask is not None:
+            # Make sure types match
+            cosine_sims = cosine_sims.double() * mask.double()
+
+        # Get weights to nearest neigh: Softmax with temp
+        soft = F.softmax(cosine_sims/self.temp, dim=1)
+        # soft = F.softmax(torch.div(cosine_sims,self.temp), dim=1)
+
+        # New Embedding: Softmax over neighbours
+        # emb = self.cheap_matmul(soft, self.normalized_emb)
+        emb = soft.matmul(self.normalized_emb)
+
+        # Reshape to original
+        emb = emb.view(shape)
+
+        return emb
 
 def old_nearest_neighbours(emb_array, batch, args, mask=None, near=1):
     """

@@ -298,7 +298,14 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
     correct_adv_emb = []
     correct_adv_tok = []
     tokens_changed_perc = []
+
     with torch.no_grad():
+
+        # Nearest neigh function
+        nearest = NearestNeighbours(args.embeddings, args.device)
+        if str(args.device) == 'cuda' and not args.no_parallel:
+            nearest = nn.DataParallel(nearest)
+
         for i, batch in enumerate(iterator):
             x = batch['text'].to(args.device)
             y = batch['labels'].to(args.device)
@@ -308,8 +315,8 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
                 last_idx = len(x)
             x, y = x[:last_idx], y[:last_idx]
             original_pred = model(x).squeeze(1)
-            prob_orig, idx = torch.max(F.softmax(original_pred,dim=1), 1)
-            correct_orig.extend(idx.eq(y).cpu().numpy().tolist())
+            prob_orig, orig_idx = torch.max(F.softmax(original_pred,dim=1), 1)
+            correct_orig.extend(orig_idx.eq(y).cpu().numpy().tolist())
             original_tokens, mask = decode_to_token(x, args.inv_alph, args)
 
             # Get input emb from target model
@@ -323,21 +330,16 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
 
             # Target predictions with adversarial embeddings
             adv_emb_preds = model(adv_embeddings,use_embed=True)
-            prob_adv_emb, idx = torch.max(F.softmax(adv_emb_preds,dim=1), 1)
-            correct_adv_emb.extend(idx.eq(y).cpu().numpy().tolist())
+            prob_adv_emb, adv_emb_idx = torch.max(F.softmax(adv_emb_preds,dim=1), 1)
+            correct_adv_emb.extend(adv_emb_idx.eq(y).cpu().numpy().tolist())
 
             # Target predictions with adversarial tokens
-            nearest = NearestNeighbours(args.embeddings, args.device)
-            if str(args.device) == 'cuda':
-                nearest = nn.DataParallel(nearest)
             adv_x = nearest(adv_embeddings, mask)
 
-            # adv_x = nearest_neighbours(\
-                        # args.embeddings, adv_embeddings, args, mask)
             adv_x = adv_x.type(x.dtype) # data type match
             adv_tok_preds = model(adv_x).squeeze(1)
-            prob_adv_tok, idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
-            correct_adv_tok.extend(idx.eq(y).cpu().numpy().tolist())
+            prob_adv_tok, adv_tok_idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
+            correct_adv_tok.extend(adv_tok_idx.eq(y).cpu().numpy().tolist())
             # Percent of changed tokens
             changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
             tokens_changed_perc.append(changed)
@@ -366,17 +368,17 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
         results += '{:s} : {:0.2f}\n'.format(k,v)
 
     results += '**Result on single test set example**\n'
-    results += 'Pred. on original input: {:0.2f}, correct class? {:d}\n'.format(\
-                                                prob_orig[0], correct_orig[0])
-    results += 'Pred. on perturbed embed.: {:0.2f}, correct class? {:d}\n'.format(\
-                                        prob_adv_emb[0], correct_adv_emb[0])
-    results += 'Pred. on nearest neighbour tokens: {:0.2f}, correct class? {:d}\n'.format(\
-                                        prob_adv_tok[0], correct_adv_tok[0])
-    results += 'Original example:\n'
+    results += 'Pred. on original input: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
+                                                prob_orig[0], orig_idx[0], correct_orig[0])
+    results += 'Pred. on perturbed embed.: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
+                                        prob_adv_emb[0], adv_emb_idx[0], correct_adv_emb[0])
+    results += 'Pred. on nearest neighbour tokens: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
+                                        prob_adv_tok[0], adv_tok_idx[0], correct_adv_tok[0])
+    results += 'Original example with class {}:\n'.format(y[0])
     original_tokens, mask = decode_to_token(x, args.inv_alph, args)
     results += original_tokens[0] + '\n'
 
-    results += 'Adversarial example:\n'
+    results += 'Adversarial example with predicted class {}:\n'.format(adv_tok_idx[0])
     # Get nearest neighbour indices/tokens
     nearest_tokens, _ = decode_to_token(adv_x, args.inv_alph, args,mask)
     results += nearest_tokens[0] + '\n'

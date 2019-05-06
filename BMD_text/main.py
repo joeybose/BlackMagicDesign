@@ -30,8 +30,7 @@ def main(args):
     if args.single_data:
         data,target = utils.get_single_data(args)
     else:
-        prepared_data = 'dataloader/prepared_data.pickle'
-        train_loader,test_loader = utils.get_data(args, prepared_data)
+        train_loader,test_loader = utils.get_data(args, args.prepared_data)
 
     # The unknown model to attack, specified in args.model
     unk_model = utils.load_unk_model(args,train_loader,test_loader)
@@ -149,6 +148,8 @@ if __name__ == '__main__':
 			help='Epsilon for Delta (default: 0.1)')
     padd('--LAMBDA', type=float, default=100, metavar='M',
 			help='Lambda for L2 lagrange penalty (default: 0.1)')
+    padd('--nn_temp', type=float, default=1.0, metavar='M',
+                   help='Starting diff. nearest neighbour temp (default: 1.0)')
     padd('--bb_steps', type=int, default=2000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
     padd('--attack_epochs', type=int, default=10, metavar='N',
@@ -163,7 +164,7 @@ if __name__ == '__main__':
                     help='embedding_dim')
     padd('--embedding_type', type=str, default="non-static",
                     help='embedding_type')
-    padd('--test_batch_size', type=int, default=128, metavar='S',
+    padd('--test_batch_size', type=int, default=128, metavar='N',
                         help='Test Batch size. 256 requires 12GB GPU memory')
     padd('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
@@ -185,6 +186,9 @@ if __name__ == '__main__':
                         help='Vanilla G White Box')
     padd('--single_data', default=False, action='store_true',
                         help='Test on a single data')
+    padd('--prepared_data',default='dataloader/prepared_data.pickle',
+                        help='Test on a single data')
+
     # Imported Model Params
     padd('--emsize', type=int, default=300,
                         help='size of word embeddings')
@@ -249,6 +253,8 @@ if __name__ == '__main__':
     # Bells
     padd('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
+    padd('--no_parallel', action='store_true', default=False,
+                        help="Don't use multiple GPUs")
     padd('--save_adv_samples', action='store_true', default=False,
                             help='Write adversarial samples to disk')
     padd('--nearest_neigh_all', action='store_true', default=False,

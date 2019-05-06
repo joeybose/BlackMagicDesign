@@ -25,6 +25,7 @@ from tqdm import tqdm
 from utils import *
 import ipdb
 from advertorch.attacks import LinfPGDAttack
+from tools.nearest import DiffNearestNeighbours
 
 def whitebox_pgd(args, image, target, model, normalize=None):
     adversary = LinfPGDAttack(
@@ -369,6 +370,13 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         print("Doing Burn in VAE")
         train_ae(args, train_loader, G)
     utils.evaluate(model,test_loader)
+
+    # Differentiable nearest neigh auxiliary loss
+    diff_nearest_func = DiffNearestNeighbours(args.embeddings, args.device,
+                                                            args.nn_temp, 100)
+    if str(args.device) == 'cuda' and not args.no_parallel:
+        diff_nearest_func = nn.DataParallel(diff_nearest_func)
+
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
         print(datetime.now())
@@ -402,6 +410,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     output = G(x)
 
                 adv_embeddings = input_embeddings + delta_embeddings
+
+                # Differentiable nearest neighbour
+                adv_embeddings = diff_nearest_func(adv_embeddings)
+
+                # Losses
+                # TODO: still need L2?
                 l2_dist = L2_dist(input_embeddings,adv_embeddings)
                 loss_perturb =  l2_dist / len(input_embeddings)
 
