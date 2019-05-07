@@ -45,18 +45,29 @@ def sample_mask(idx, l):
     mask[idx] = 1
     return mask
 
+def calc_class_margin(probs,correct_indices):
+    correct_probs = probs[correct_indices].squeeze()
+    vals,inds = torch.topk(correct_probs,2,dim=1)
+    margin = vals[:,0] - vals[:,1]
+    top_margin, top_inds = torch.topk(margin,10)
+    bot_margin, bot_inds = torch.topk(-1*margin,10)
+    top_nodes = correct_indices[top_inds]
+    bot_nodes = correct_indices[bot_inds]
+    return top_nodes, bot_nodes
+
 def evaluate(model, features, labels, mask):
     model.eval()
     with torch.no_grad():
         logits = model(features)
+        probs = F.softmax(logits,dim=1)
         logits = logits[mask]
         labels = labels[mask]
         _, indices = torch.max(logits, dim=1)
-        # correct = torch.sum(indices == labels.cuda())
         results = (indices == labels.cuda())
         correct = torch.sum(results)
         correct_indices = (results != 0).nonzero()
-        return correct.item() * 1.0 / len(labels), correct_indices
+        top_nodes,bot_nodes = calc_class_margin(probs,correct_indices)
+        return correct.item() * 1.0 / len(labels), correct_indices, top_nodes, bot_nodes
 
 def get_data(args):
     """

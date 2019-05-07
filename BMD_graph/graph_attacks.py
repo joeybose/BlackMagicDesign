@@ -165,9 +165,15 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
 
     return out, delta
 
-def create_node_masks(labels,correct_indices,num_target_samples=40,num_attack_samples=200):
+def create_node_masks(labels,correct_indices,top_nodes,bot_nodes,\
+                      num_target_samples=20,num_attack_samples=200):
+    top_nodes = top_nodes.squeeze().cpu().numpy()
+    bot_nodes = bot_nodes.squeeze().cpu().numpy()
     all_ids = set(range(len(labels)))
-    target_ids = np.random.choice(correct_indices,num_target_samples,replace=False)
+    target_set = set(correct_indices) - set(top_nodes)
+    target_set = target_set - set(bot_nodes)
+    target_ids = np.random.choice(list(target_set),num_target_samples,replace=False)
+    target_ids = list(target_ids) + list(top_nodes) + list(bot_nodes)
     attack_set = all_ids - set(target_ids)
     attack_array = np.asarray(list(attack_set))
     attack_ids = np.random.choice(attack_array,num_attack_samples,replace=False)
@@ -209,8 +215,11 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
     target_mask, attack_mask = None,None
     if args.influencer_attack:
         all_mask = torch.ByteTensor(sample_mask(range(len(labels)), labels.shape[0]))
-        acc, correct_indices = evaluate(model, features.cuda(), labels, all_mask)
-        target_mask, attack_mask = create_node_masks(labels,correct_indices.squeeze().cpu().numpy())
+        acc, correct_indices, top_nodes, bot_nodes = evaluate(model,
+                                                              features.cuda(),
+                                                              labels, all_mask)
+        target_mask, attack_mask = create_node_masks(labels,correct_indices.squeeze().cpu().numpy(),\
+                          top_nodes,bot_nodes)
         attack_mask = attack_mask.unsqueeze(1).float()
         attack_mask = attack_mask.repeat(1,features.shape[1])
 
@@ -218,10 +227,9 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
     for epoch in range(0,args.attack_epochs):
         correct = 0
         delta, kl_div  = G(features,adj_mat)
-        kl_div = kl_div.sum() / len(features)
+        kl_div = kl_div.sum()
 
         ''' Projection Step '''
-        # ipdb.set_trace()
         if args.influencer_attack:
             delta = delta*attack_mask
 
@@ -256,9 +264,9 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
             args.experiment.log_metric("Adv Accuracy",\
                     100.*correct/len(masked_labels),step=epoch)
 
-        print('\nTrain: Epoch:{} Loss: {:.4f}, Delta: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
+        print('\nTrain: Epoch:{} Total Loss: {:.4f}, Delta: {:.4f}, KL: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
-                    loss, loss_perturb, correct, len(masked_labels),
+                    loss, loss_perturb, kl_div, correct, len(masked_labels),
                     100. * correct / len(masked_labels)))
         L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G,target_mask,attack_mask)
 
