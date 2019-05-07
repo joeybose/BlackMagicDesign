@@ -36,10 +36,11 @@ def main(args):
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     stop_number = int(np.round(len(labels)*0.1))
-    train_mask = torch.ByteTensor(sample_mask(range(stop_number), labels.shape[0]))
-    # train_mask = torch.ByteTensor(data.train_mask)
+    # train_mask = torch.ByteTensor(sample_mask(range(stop_number), labels.shape[0]))
+    train_mask = torch.ByteTensor(data.train_mask)
     val_mask = torch.ByteTensor(data.val_mask)
-    test_mask = torch.ByteTensor(sample_mask(range(500, 1500), labels.shape[0]))
+    test_mask = torch.ByteTensor(data.test_mask)
+    # test_mask = torch.ByteTensor(sample_mask(range(500, 1500), labels.shape[0]))
     in_feats = features.shape[1]
     n_classes = data.num_labels
     n_edges = data.graph.number_of_edges()

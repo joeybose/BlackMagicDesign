@@ -24,8 +24,8 @@ from attack_models import GCNModelVAE
 def main(args):
     # Load data
     features, labels, train_mask, val_mask, test_mask, data = utils.get_data(args)
-    # n_nodes = data.graph.number_of_nodes()
-    n_nodes = 40
+    n_nodes = data.graph.number_of_nodes()
+    # n_nodes = 40
 
     # The unknown model to attack
     unk_model = utils.load_unk_model(args,data,features,labels)

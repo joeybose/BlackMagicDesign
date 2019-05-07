@@ -131,8 +131,8 @@ def load_unk_model(args,data,features,labels):
                 F.relu,
                 args.dropout).cuda()
     load_file = 'saved_models/'+args.dataset+'_graph_classifier.pt'
-    model.load_state_dict(torch.load('saved_models/graph_classifier.pt'))
-    # model.load_state_dict(torch.load(load_file))
+    # model.load_state_dict(torch.load('saved_models/graph_classifier.pt'))
+    model.load_state_dict(torch.load(load_file))
     model.eval()
     return model
 
