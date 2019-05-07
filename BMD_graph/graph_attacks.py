@@ -14,6 +14,7 @@ from advertorch.utils import batch_clamp
 from advertorch.utils import clamp
 from torch import optim
 from torch.autograd import Variable
+import itertools
 import json
 import os
 import numpy as np
@@ -165,7 +166,15 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
 
     return out, delta
 
-def create_node_masks(labels,correct_indices,top_nodes,bot_nodes,\
+def get_node_neighbors(g,node):
+    predecessors = g.predecessors(node)
+    successors = g.successors(node)
+    predecessors = set(predecessors.cpu().numpy()[0:5])
+    successors = set(successors.cpu().numpy()[0:5])
+    neighbors = predecessors.union(successors)
+    return list(neighbors)
+
+def create_node_masks(g,labels,correct_indices,top_nodes,bot_nodes,\
                       num_target_samples=20,num_attack_samples=200):
     top_nodes = top_nodes.squeeze().cpu().numpy()
     bot_nodes = bot_nodes.squeeze().cpu().numpy()
@@ -174,9 +183,13 @@ def create_node_masks(labels,correct_indices,top_nodes,bot_nodes,\
     target_set = target_set - set(bot_nodes)
     target_ids = np.random.choice(list(target_set),num_target_samples,replace=False)
     target_ids = list(target_ids) + list(top_nodes) + list(bot_nodes)
-    attack_set = all_ids - set(target_ids)
+    attacker_nodes = [get_node_neighbors(g,int(node)) for node in target_ids]
+    attacker_nodes = list(itertools.chain.from_iterable(attacker_nodes))
+    num_attack_samples = num_attack_samples - len(attacker_nodes)
+    attack_set = all_ids - set(target_ids).union(attacker_nodes)
     attack_array = np.asarray(list(attack_set))
     attack_ids = np.random.choice(attack_array,num_attack_samples,replace=False)
+    attack_ids = list(itertools.chain.from_iterable([attacker_nodes,attack_ids]))
     target_mask = torch.ByteTensor(sample_mask(target_ids, labels.shape[0]))
     attack_mask = torch.ByteTensor(sample_mask(attack_ids, labels.shape[0]))
     return target_mask.cuda(), attack_mask.cuda()
@@ -217,8 +230,8 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
         all_mask = torch.ByteTensor(sample_mask(range(len(labels)), labels.shape[0]))
         acc, correct_indices, top_nodes, bot_nodes = evaluate(model,
                                                               features.cuda(),
-                                                              labels, all_mask)
-        target_mask, attack_mask = create_node_masks(labels,correct_indices.squeeze().cpu().numpy(),\
+                                                              labels, test_mask)
+        target_mask, attack_mask = create_node_masks(g,labels,correct_indices.squeeze().cpu().numpy(),\
                           top_nodes,bot_nodes)
         attack_mask = attack_mask.unsqueeze(1).float()
         attack_mask = attack_mask.repeat(1,features.shape[1])
