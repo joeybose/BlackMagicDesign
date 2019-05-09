@@ -6,7 +6,7 @@ from torch import nn
 import torch.nn.functional as F
 
 class NearestNeighbours(nn.Module):
-    def __init__(self, emb_array, device):
+    def __init__(self, emb_array, device, distance='L2'):
         """
         Computing cosine sim on vector and vocab every time is too costly. We
         can speed up computation by storing intermediates and change the order
@@ -15,7 +15,10 @@ class NearestNeighbours(nn.Module):
         super().__init__()
         # Normalize embedding (for faster cosine compute)
         emb_array = torch.Tensor(emb_array).to(device)
-        normalized_emb = self.normalize_matrix(emb_array)
+        if distance is not 'L2':
+            normalized_emb = self.normalize_matrix(emb_array)
+        else:
+            normalized_emb = emb_array
         # Must make Parameter in order to parallelize
         self.normalized_emb = nn.Parameter(normalized_emb, requires_grad=False)
         self.register_parameter('embeddings', self.normalized_emb)
@@ -38,6 +41,19 @@ class NearestNeighbours(nn.Module):
         norm = torch.norm(array, dim=2)
         normed = array / norm.view(norm.shape[0], norm.shape[1], 1)
         return normed
+
+    def L2_distance(self, batch, return_all=False):
+        """
+        Compute consine efficiently. Assumes `batch is not euclidean
+        normalized as well as embedding tensor
+
+        Args:
+            return_all: return L2 distance for all
+        """
+        batch_size, seq_len = batch.shape[0], batch.shape[1]
+        emb_size = self.normalized_emb.shape[1]
+        # Reshape to do a single matrix mult
+        batch = batch.view(-1, emb_size)
 
     def cosine_sim(self, batch, return_all=False):
         """
@@ -86,7 +102,7 @@ class DiffNearestNeighbours(NearestNeighbours):
         Args:
             nn_temp: softmax temp w/ nearest neighbour logits
         """
-        super().__init__(emb_array, device)
+        super().__init__(emb_array, device, distance='cosine')
         # self.temp = torch.tensor(diff_temp, requires_grad=False).to(device)
         # self.min_temp = torch.tensor(0.05, requires_grad=False).to(device)
         self.temp = diff_temp

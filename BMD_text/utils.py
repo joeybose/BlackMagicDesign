@@ -269,7 +269,6 @@ def train_unk_model(args,model,train_itr,test_itr):
 def evaluate(model, iterator):
     epoch_loss = 0
     epoch_acc = 0
-    ipdb.set_trace()
     with torch.no_grad():
         for i, batch in enumerate(iterator):
             x, y = batch['text'].cuda(), batch['labels'].cuda()
@@ -282,10 +281,10 @@ def evaluate(model, iterator):
             epoch_acc += acc.item()
         print('No Adv Evaluation loss: ',epoch_loss / len(iterator.dataset),'Eval accuracy: ' ,epoch_acc / len(iterator.dataset))
 
-def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
+def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode='Test'):
     """
     Args:
-        iterator: (dataloader iterator) to iterate test batches
+        iterator: (dataloader iterator) to iterate batches
         model: target model
         G: adversarial model
         num_samples: (int) samples evaluated, if None, all samples evaluated
@@ -305,7 +304,6 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
 
     # Nearest neigh function
     nearest = NearestNeighbours(args.embeddings, args.device)
-    ipdb.set_trace()
     if str(args.device) == 'cuda' and not args.no_parallel:
         nearest = nn.DataParallel(nearest)
 
@@ -358,20 +356,35 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
             "perc tok changed": sum(tokens_changed_perc)/len(tokens_changed_perc)
             }
 
+    if args.comet:
+        if mode == 'Train':
+            args.experiment.log_metric("Train acc unperturbed",sum(correct_orig)/len(correct_orig),step=epoch)
+            args.experiment.log_metric("Train acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
+            args.experiment.log_metric("Train acc adv tok",\
+                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+            args.experiment.log_metric("Train perc tok changed",\
+                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+        else:
+            args.experiment.log_metric("Test acc unperturbed",sum(correct_orig)/len(correct_orig),step=epoch)
+            args.experiment.log_metric("Test acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
+            args.experiment.log_metric("Test acc adv tok",\
+                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+            args.experiment.log_metric("Test perc tok changed",\
+                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
     t2 = datetime.now()
     # Save results to string, so easy to print and write to file
     # TODO: add number of flipped tokens
     results = '*'*80 + '\n'
     results += 'Epoch: {}\n'.format(epoch)
 
-    results += '**Result on full test set**\n'
+    results += '**Result on full' + mode + ' set**\n'
     time_diff = (t2-t1).total_seconds()/60.0
     results += 'Time to evaluate: {:.2f} minutes\n'.format(time_diff)
     results += 'Test set size: {}\n'.format(len(correct_orig))
     for k, v in accuracies.items():
         results += '{:s} : {:0.2f}\n'.format(k,v)
 
-    results += '**Result on single test set example**\n'
+    results += '**Result on single ' + mode + ' set example**\n'
     results += 'Pred. on original input: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
                                                 prob_orig[0], orig_idx[0], correct_orig[0])
     results += 'Pred. on perturbed embed.: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
