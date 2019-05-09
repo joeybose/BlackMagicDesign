@@ -375,14 +375,15 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
     if args.diff_nn:
         # Differentiable nearest neigh auxiliary loss
         diff_nearest_func = DiffNearestNeighbours(args.embeddings, args.device,
-                                                                args.nn_temp, 100)
+                                                  args.nn_temp,100,
+                                                  args.distance_func)
         if str(args.device) == 'cuda' and not args.no_parallel:
             diff_nearest_func = nn.DataParallel(diff_nearest_func)
 
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
-        neig_eg, test_accuracies = utils.evaluate_neighbours(test_loader,
-                                                        model, G, args, epoch)
+        # neig_eg, test_accuracies = utils.evaluate_neighbours(test_loader,
+                                                        # model, G, args, epoch)
 
         print(datetime.now())
         train_itr = tqdm(enumerate(train_loader),\

@@ -3,6 +3,7 @@ Various nearest neighbour algorithms for dense word vectors
 """
 import torch
 from torch import nn
+import ipdb
 import torch.nn.functional as F
 
 class NearestNeighbours(nn.Module):
@@ -13,6 +14,7 @@ class NearestNeighbours(nn.Module):
         of the computation.
         """
         super().__init__()
+        self.distance = distance
         # Normalize embedding (for faster cosine compute)
         emb_array = torch.Tensor(emb_array).to(device)
         if distance is not 'L2':
@@ -55,7 +57,7 @@ class NearestNeighbours(nn.Module):
         # Reshape to do a single matrix mult
         batch = batch.view(-1, emb_size)
 
-    def cosine_sim(self, batch, return_all=False):
+    def cosine_distance(self, batch, return_all=False):
         """
         Compute consine efficiently. Assumes `batch is already euclidean
         normalized as well as embedding tensor
@@ -71,12 +73,13 @@ class NearestNeighbours(nn.Module):
         batch = batch.view(-1, emb_size)
         # Cosine-sim's dot product
         mult = batch.matmul(self.normalized_emb.transpose(0,1))
+        cosine_dist = 1 - mult
 
         del batch # desperate attempt to free memory
-        nearest = torch.argmax(mult, dim=1)
+        nearest = torch.argmax(cosine_dist, dim=1)
         nearest = nearest.view(batch_size, seq_len)
         if return_all:
-            return nearest, mult
+            return nearest, cosine_dist
         # Return only nearest to save memory
         return nearest
 
@@ -85,7 +88,10 @@ class NearestNeighbours(nn.Module):
         batch = self.normalize_tensor(batch)
 
         # Calc dist
-        nearest = self.cosine_sim(batch)
+        if self.distance == 'L2':
+            nearest = self.L2_distance(batch)
+        else:
+            nearest = self.cosine_distance(batch)
 
         # Mask stuff
         if mask is not None:
@@ -94,7 +100,7 @@ class NearestNeighbours(nn.Module):
         return nearest
 
 class DiffNearestNeighbours(NearestNeighbours):
-    def __init__(self, emb_array, device, diff_temp, decay_rate):
+    def __init__(self, emb_array, device, diff_temp, decay_rate, distance):
         """
         Differentiable Nearest Neighbour. As temperature decreases, converges
         to nearest neighbour
@@ -102,7 +108,7 @@ class DiffNearestNeighbours(NearestNeighbours):
         Args:
             nn_temp: softmax temp w/ nearest neighbour logits
         """
-        super().__init__(emb_array, device, distance='cosine')
+        super().__init__(emb_array, device, distance=distance)
         # self.temp = torch.tensor(diff_temp, requires_grad=False).to(device)
         # self.min_temp = torch.tensor(0.05, requires_grad=False).to(device)
         self.temp = diff_temp
@@ -124,16 +130,16 @@ class DiffNearestNeighbours(NearestNeighbours):
         batch = self.normalize_tensor(batch)
 
         # Calc dist
-        nearest, cosine_sims = self.cosine_sim(batch, return_all=True)
+        nearest, cosine_dists = self.cosine_distance(batch, return_all=True)
 
         # Mask stuff
         if mask is not None:
             # Make sure types match
-            cosine_sims = cosine_sims.double() * mask.double()
+            cosine_dists = cosine_dists.double() * mask.double()
 
         # Get weights to nearest neigh: Softmax with temp
-        soft = F.softmax(cosine_sims/self.temp, dim=1)
-        # soft = F.softmax(torch.div(cosine_sims,self.temp), dim=1)
+        soft = F.softmax(cosine_dists/self.temp, dim=1)
+        # soft = F.softmax(torch.div(cosine_dists,self.temp), dim=1)
 
         # New Embedding: Softmax over neighbours
         # emb = self.cheap_matmul(soft, self.normalized_emb)

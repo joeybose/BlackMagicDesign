@@ -236,6 +236,8 @@ if __name__ == '__main__':
                     help='Discount Factor')
     padd('--model', type=str, default="lstm_arch",
                     help='classification model name')
+    padd('--distance_func', type=str, default="cosine",
+                    help='NN distance function')
     padd('--hidden_dim', type=int, default=128,
                     help='hidden_dim')
     padd('--burn_in', type=int, default=500,
