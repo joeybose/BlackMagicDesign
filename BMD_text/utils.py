@@ -269,6 +269,7 @@ def train_unk_model(args,model,train_itr,test_itr):
 def evaluate(model, iterator):
     epoch_loss = 0
     epoch_acc = 0
+    ipdb.set_trace()
     with torch.no_grad():
         for i, batch in enumerate(iterator):
             x, y = batch['text'].cuda(), batch['labels'].cuda()
@@ -276,7 +277,7 @@ def evaluate(model, iterator):
             loss = F.cross_entropy(predictions,y)
             prob, idx = torch.max(F.log_softmax(predictions,dim=1), 1)
             correct = idx.eq(y)
-            acc = correct.sum().float() /len(correct)
+            acc = correct.sum().float()
             epoch_loss += loss.item()
             epoch_acc += acc.item()
         print('No Adv Evaluation loss: ',epoch_loss / len(iterator.dataset),'Eval accuracy: ' ,epoch_acc / len(iterator.dataset))
@@ -298,53 +299,56 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
     correct_adv_emb = []
     correct_adv_tok = []
     tokens_changed_perc = []
+    G.eval()
+    model.eval()
+    # with torch.no_grad():
 
-    with torch.no_grad():
+    # Nearest neigh function
+    nearest = NearestNeighbours(args.embeddings, args.device)
+    ipdb.set_trace()
+    if str(args.device) == 'cuda' and not args.no_parallel:
+        nearest = nn.DataParallel(nearest)
 
-        # Nearest neigh function
-        nearest = NearestNeighbours(args.embeddings, args.device)
-        if str(args.device) == 'cuda' and not args.no_parallel:
-            nearest = nn.DataParallel(nearest)
+    for i, batch in enumerate(iterator):
+        x = batch['text'].to(args.device)
+        y = batch['labels'].to(args.device)
+        if args.nearest_neigh_all == False:
+            last_idx = 3
+        else:
+            last_idx = len(x)
+        x, y = x[:last_idx], y[:last_idx]
+        original_pred = model(x).squeeze(1)
+        prob_orig, orig_idx = torch.max(F.softmax(original_pred,dim=1), 1)
+        correct_orig.extend(orig_idx.eq(y).cpu().numpy().tolist())
+        original_tokens, mask = decode_to_token(x, args.inv_alph, args)
 
-        for i, batch in enumerate(iterator):
-            x = batch['text'].to(args.device)
-            y = batch['labels'].to(args.device)
-            if args.nearest_neigh_all == False:
-                last_idx = 3
-            else:
-                last_idx = len(x)
-            x, y = x[:last_idx], y[:last_idx]
-            original_pred = model(x).squeeze(1)
-            prob_orig, orig_idx = torch.max(F.softmax(original_pred,dim=1), 1)
-            correct_orig.extend(orig_idx.eq(y).cpu().numpy().tolist())
-            original_tokens, mask = decode_to_token(x, args.inv_alph, args)
+        # Get input emb from target model
+        input_embeddings = model.get_embeds(x).detach()
 
-            # Get input emb from target model
-            input_embeddings = model.get_embeds(x).detach()
+        # Attack model perturbation
+        # with torch.no_grad():
+        delta_embeddings, kl_div = G(x.detach())
 
-            # Attack model perturbation
-            delta_embeddings, kl_div = G(x)
+        # Adversarial embeddings: combine input and perturb
+        adv_embeddings = input_embeddings + delta_embeddings.detach()
 
-            # Adversarial embeddings: combine input and perturb
-            adv_embeddings = input_embeddings + delta_embeddings
+        # Target predictions with adversarial embeddings
+        adv_emb_preds = model(adv_embeddings,use_embed=True)
+        prob_adv_emb, adv_emb_idx = torch.max(F.softmax(adv_emb_preds,dim=1), 1)
+        correct_adv_emb.extend(adv_emb_idx.eq(y).cpu().numpy().tolist())
 
-            # Target predictions with adversarial embeddings
-            adv_emb_preds = model(adv_embeddings,use_embed=True)
-            prob_adv_emb, adv_emb_idx = torch.max(F.softmax(adv_emb_preds,dim=1), 1)
-            correct_adv_emb.extend(adv_emb_idx.eq(y).cpu().numpy().tolist())
+        # Target predictions with adversarial tokens
+        adv_x = nearest(adv_embeddings, mask)
 
-            # Target predictions with adversarial tokens
-            adv_x = nearest(adv_embeddings, mask)
-
-            adv_x = adv_x.type(x.dtype) # data type match
-            adv_tok_preds = model(adv_x).squeeze(1)
-            prob_adv_tok, adv_tok_idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
-            correct_adv_tok.extend(adv_tok_idx.eq(y).cpu().numpy().tolist())
-            # Percent of changed tokens
-            changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
-            tokens_changed_perc.append(changed)
-            if args.nearest_neigh_all == False:
-                break
+        adv_x = adv_x.type(x.dtype) # data type match
+        adv_tok_preds = model(adv_x).squeeze(1)
+        prob_adv_tok, adv_tok_idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
+        correct_adv_tok.extend(adv_tok_idx.eq(y).cpu().numpy().tolist())
+        # Percent of changed tokens
+        changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
+        tokens_changed_perc.append(changed)
+        if args.nearest_neigh_all == False:
+            break
 
 
     accuracies = {
@@ -390,6 +394,8 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None):
         with open(args.sample_file, 'a') as f:
             f.write(results)
         print("====Saved results to file===")
+    G.train()
+    model.train()
     return results, accuracies
 
 def decode_to_token(x, idx_to_tok, args, mask=None):

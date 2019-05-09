@@ -312,6 +312,7 @@ def train_ae(args, train_loader, G):
     ntokens = len(args.alphabet)
 
     # Only 1 Epoch because it already overfits
+    ipdb.set_trace()
     for batch_idx, batch in enumerate(train_itr):
         if batch_idx > args.burn_in:
             break
@@ -371,14 +372,16 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         train_ae(args, train_loader, G)
     utils.evaluate(model,test_loader)
 
-    # Differentiable nearest neigh auxiliary loss
-    diff_nearest_func = DiffNearestNeighbours(args.embeddings, args.device,
-                                                            args.nn_temp, 100)
-    if str(args.device) == 'cuda' and not args.no_parallel:
-        diff_nearest_func = nn.DataParallel(diff_nearest_func)
+    if args.diff_nn:
+        # Differentiable nearest neigh auxiliary loss
+        diff_nearest_func = DiffNearestNeighbours(args.embeddings, args.device,
+                                                                args.nn_temp, 100)
+        if str(args.device) == 'cuda' and not args.no_parallel:
+            diff_nearest_func = nn.DataParallel(diff_nearest_func)
 
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
+
         print(datetime.now())
         train_itr = tqdm(enumerate(train_loader),\
                 total=len(train_loader.dataset)/args.batch_size)
@@ -411,8 +414,9 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
                 adv_embeddings = input_embeddings + delta_embeddings
 
-                # Differentiable nearest neighbour
-                adv_embeddings = diff_nearest_func(adv_embeddings)
+                if args.diff_nn:
+                    # Differentiable nearest neighbour
+                    adv_embeddings = diff_nearest_func(adv_embeddings)
 
                 # Losses
                 # TODO: still need L2?

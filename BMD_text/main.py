@@ -250,6 +250,8 @@ if __name__ == '__main__':
                         help='use seq gan reward')
     padd('--train_classifier', action='store_true', default=False,
                         help='Train Classifier from scratch')
+    padd('--diff_nn', action='store_true', default=False,
+                        help='Backprop through Nearest Neighbors')
     # Bells
     padd('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
