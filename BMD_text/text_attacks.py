@@ -444,7 +444,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
             correct += out.eq(y.data).sum()
 
         # Get examples of nearest neighbour text and scores
-        neig_eg, train_accuracies = utils.evaluate_neighbours(test_loader,
+        neig_eg, train_accuracies = utils.evaluate_neighbours(train_loader,
                                                         model, G, args, epoch, mode='Train')
         neig_eg, test_accuracies = utils.evaluate_neighbours(test_loader,
                                                         model, G, args, epoch)
