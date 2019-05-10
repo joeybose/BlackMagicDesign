@@ -65,7 +65,7 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
 
 def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,\
-                  data,model,G,target_mask=None,attack_mask=None):
+                  data,model,G,target_mask=None,attack_mask=None,return_correct=False):
 
     ''' Testing Phase '''
     correct_test = 0
@@ -96,6 +96,8 @@ def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,\
     if args.comet:
         args.experiment.log_metric("Test Adv Accuracy",\
                 100.*correct_test/len(masked_labels),step=epoch)
+    if return_correct:
+        return correct_test
 
 def carlini_wagner_loss(args, output, target, scale_const=1):
     # compute the probability of the label class versus the maximum other
@@ -173,7 +175,6 @@ def get_node_neighbors(g,node,all_ids,min_neighbors=False,target_mask=None):
     successors = set(successors.cpu().numpy()[0:5])
     neighbors = predecessors.union(successors)
     if min_neighbors:
-        ipdb.set_trace()
         if len(neighbors) < 5:
             num_neigh_samples = 5 - len(neighbors)
             if target_mask is not None:
@@ -195,7 +196,6 @@ def create_single_node_masks(g,labels,correct_indices,top_nodes,bot_nodes,\
     target_ids = np.random.choice(list(target_set),num_target_samples,replace=False)
     target_ids = list(target_ids) + list(top_nodes) + list(bot_nodes)
     attacker_ids = [get_node_neighbors(g,int(node),all_ids,True) for node in target_ids]
-    ipdb.set_trace()
     return target_ids, attacker_ids
 
 def create_node_masks(g,labels,correct_indices,top_nodes,bot_nodes,\
@@ -308,10 +308,18 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
         L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G,target_mask,attack_mask)
 
     if args.single_node_attack and args.influencer_attack:
-        single_target_mask, single_attack_mask = create_single_node_masks(g,labels,correct_indices.squeeze().cpu().numpy(),\
+        single_target_ids, single_attack_ids = create_single_node_masks(g,labels,correct_indices.squeeze().cpu().numpy(),\
                           top_nodes,bot_nodes)
-        L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,\
-                      G,single_target_mask,single_attack_mask)
+        single_correct_test = 0
+        for target_node, attacker_nodes in zip(single_target_ids,single_attack_ids):
+            single_target_mask = torch.ByteTensor(sample_mask(target_node,labels.shape[0])).cuda()
+            single_attack_mask = torch.ByteTensor(sample_mask(attacker_nodes, labels.shape[0]))
+            single_attack_mask = single_attack_mask.unsqueeze(1).float()
+            single_attack_mask = single_attack_mask.repeat(1,features.shape[1]).cuda()
+            single_correct_test += L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,\
+                          G,single_target_mask,single_attack_mask,return_correct=True)
+        single_acc = single_correct_test.data.cpu().numpy() / len(single_target_ids)
+        print("Single Accuracy is %f " %(single_acc))
 
 def soft_reward(pred, targ):
     """
