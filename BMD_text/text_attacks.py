@@ -312,7 +312,6 @@ def train_ae(args, train_loader, G):
     ntokens = len(args.alphabet)
 
     # Only 1 Epoch because it already overfits
-    ipdb.set_trace()
     for batch_idx, batch in enumerate(train_itr):
         if batch_idx > args.burn_in:
             break
@@ -374,10 +373,9 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
     if args.diff_nn:
         # Differentiable nearest neigh auxiliary loss
-        diff_nearest_func = DiffNearestNeighbours(args.embeddings, args.device,
-                                                  args.nn_temp,100,
-                                                  args.distance_func,
-                                                  args=args)
+        diff_nearest_func = DiffNearestNeighbours(model.embedding.weight.detach().cpu(),
+                              args.device, args.nn_temp,100,
+                              args.distance_func, args=args)
         if str(args.device) == 'cuda' and not args.no_parallel:
             diff_nearest_func = nn.DataParallel(diff_nearest_func)
 
@@ -418,6 +416,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
 
                 if args.debug_neighbour:
+                    ipdb.set_trace()
                     adv_embeddings = input_embeddings
                 else:
                     adv_embeddings = input_embeddings + delta_embeddings
@@ -428,8 +427,8 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
                 # Unit test, changed should be 0
                 if args.debug_neighbour:
-                    nearest = NearestNeighbours(args.embeddings, args.device,
-                                                            args.distance_func)
+                    nearest = NearestNeighbours(model.embedding.weight.detach().cpu(),
+                                      args.device, args.distance_func)
 
                     # Nearest to itself
                     _, mask = decode_to_token(x, args.inv_alph, args)

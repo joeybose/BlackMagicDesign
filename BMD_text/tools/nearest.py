@@ -31,9 +31,10 @@ class NearestNeighbours(nn.Module):
         Returns: array / euclidean_norm(array)
         """
         # Get embedding norm and normalize
-        norm = torch.norm(array, dim=1)
-        normed = array / norm.view(len(norm),1)
-        return normed
+        norm = torch.norm(array, dim=1).detach()
+        # normed = array / norm.view(len(norm),1)
+        array = array.div(norm.unsqueeze(1).expand_as(array))
+        return array
 
     def normalize_tensor(self, array):
         """
