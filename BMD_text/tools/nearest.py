@@ -76,7 +76,7 @@ class NearestNeighbours(nn.Module):
         cosine_dist = 1 - mult
 
         del batch # desperate attempt to free memory
-        nearest = torch.argmax(cosine_dist, dim=1)
+        nearest = torch.argmin(cosine_dist, dim=1)
         nearest = nearest.view(batch_size, seq_len)
         if return_all:
             return nearest, cosine_dist
@@ -100,7 +100,7 @@ class NearestNeighbours(nn.Module):
         return nearest
 
 class DiffNearestNeighbours(NearestNeighbours):
-    def __init__(self, emb_array, device, diff_temp, decay_rate, distance):
+    def __init__(self, emb_array, device, diff_temp, decay_rate, distance, args):
         """
         Differentiable Nearest Neighbour. As temperature decreases, converges
         to nearest neighbour
@@ -115,15 +115,27 @@ class DiffNearestNeighbours(NearestNeighbours):
         self.min_temp = 0.05
         self.batch_count = 0
         self.decay_rate = decay_rate
+        self.args = args
 
     def temp_update(self):
         self.batch_count += 1
         if self.batch_count % self.decay_rate == 0:
             self.temp=torch.min(self.temp*0.95, self.min_temp)
 
-    def forward(self, batch, mask=None):
+    def forward(self, batch, mask=None, batch_token=None, test_temp=None):
+        """
+        Args:
+            batch_token: batch but with original idx instead of embeddings, use
+                this to compare the closest embedding indx, they should match
+                if they should be the same word
+            test_temp: will use this temp instead of self.temp, for debugging
+        """
         # Maybe decay temp
-        self.temp_update()
+        if test_temp is None:
+            self.temp_update()
+        else:
+            self.temp = test_temp
+
         shape = batch.shape
 
         # Normalize batch. If normalize after dot product, mem explodes
@@ -137,9 +149,11 @@ class DiffNearestNeighbours(NearestNeighbours):
             # Make sure types match
             cosine_dists = cosine_dists.double() * mask.double()
 
-        # Get weights to nearest neigh: Softmax with temp
-        soft = F.softmax(cosine_dists/self.temp, dim=1)
-        # soft = F.softmax(torch.div(cosine_dists,self.temp), dim=1)
+        # Get weights to nearest neigh: Softmax with temp, reverse sign
+        soft = F.softmax(((-1)*cosine_dists)/self.temp, dim=1)
+
+        # Unit test
+        # Most probable embedding must be same as nearest
 
         # New Embedding: Softmax over neighbours
         # emb = self.cheap_matmul(soft, self.normalized_emb)

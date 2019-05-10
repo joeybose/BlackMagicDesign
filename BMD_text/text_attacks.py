@@ -25,7 +25,7 @@ from tqdm import tqdm
 from utils import *
 import ipdb
 from advertorch.attacks import LinfPGDAttack
-from tools.nearest import DiffNearestNeighbours
+from tools.nearest import DiffNearestNeighbours, NearestNeighbours
 
 def whitebox_pgd(args, image, target, model, normalize=None):
     adversary = LinfPGDAttack(
@@ -376,7 +376,8 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         # Differentiable nearest neigh auxiliary loss
         diff_nearest_func = DiffNearestNeighbours(args.embeddings, args.device,
                                                   args.nn_temp,100,
-                                                  args.distance_func)
+                                                  args.distance_func,
+                                                  args=args)
         if str(args.device) == 'cuda' and not args.no_parallel:
             diff_nearest_func = nn.DataParallel(diff_nearest_func)
 
@@ -415,11 +416,38 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 else:
                     output = G(x)
 
-                adv_embeddings = input_embeddings + delta_embeddings
 
-                if args.diff_nn:
-                    # Differentiable nearest neighbour
-                    adv_embeddings = diff_nearest_func(adv_embeddings)
+                if args.debug_neighbour:
+                    adv_embeddings = input_embeddings
+                else:
+                    adv_embeddings = input_embeddings + delta_embeddings
+                    if args.diff_nn:
+                        # Differentiable nearest neighbour embeddings
+                        adv_embeddings = diff_nearest_func(adv_embeddings,
+                                                                batch_token=x)
+
+                # Unit test, changed should be 0
+                if args.debug_neighbour:
+                    nearest = NearestNeighbours(args.embeddings, args.device,
+                                                            args.distance_func)
+
+                    # Nearest to itself
+                    _, mask = decode_to_token(x, args.inv_alph, args)
+                    orig_x = nearest(input_embeddings, mask=mask)
+                    orig_x = orig_x.type(x.dtype) # data type match
+                    # Percent of changed tokens on original
+                    changed = 1 - (x.eq(orig_x)).sum().cpu().numpy() / x.numel()
+
+                    # Differentiable nearest neighbour embeddings
+                    adv_embeddings = diff_nearest_func(adv_embeddings,
+                                                batch_token=x, test_temp=0.01)
+
+                    # Project relaxed nearest neighbour embeddings to tokens
+                    _, mask = decode_to_token(x, args.inv_alph, args)
+                    adv_x = nearest(adv_embeddings, mask=mask)
+                    adv_x = adv_x.type(x.dtype) # data type match
+                    # Percent of changed tokens on adversarial
+                    changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
 
                 # Losses
                 # TODO: still need L2?

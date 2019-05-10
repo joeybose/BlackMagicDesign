@@ -3,7 +3,7 @@
 # Will save adversarial samples to "temp/adv_samples.txt"
 
 # Only 1 iteration, only 1 batch
-python -m pudb main.py --white --no_pgd_optim --no_parallel --hidden_init --batch_size=32  --namestr="carlini_Text" --LAMBDA=0.01 --carlini_loss --max_iter 1 --max_batches 1 --save_adv_samples --prepared_data='dataloader/32_prepared_data.pickle'
+python -m pudb main.py --white --no_pgd_optim --no_parallel --hidden_init --batch_size=32  --namestr="carlini_Text" --LAMBDA=0.01 --carlini_loss --max_iter 1 --max_batches 1 --save_adv_samples --prepared_data='dataloader/32_prepared_data.pickle' --diff_nn --debug_neighbour
 
 # Only 1 iteration, all neighbours
 #python -m pudb main.py --white --no_pgd_optim --no_parallel --hidden_init --batch_size=32  --namestr="carlini_Text" --LAMBDA=0.01 --carlini_loss --max_iter 1 --max_batches 1 --save_adv_samples --prepared_data='dataloader/32_prepared_data.pickle' --nearest_neigh_all

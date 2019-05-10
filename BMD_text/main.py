@@ -271,6 +271,8 @@ if __name__ == '__main__':
             default="Ht9lkWvTm58fRo9ccgpabq5zV",help='Api for comet logging')
     padd('--debug', default=False, action='store_true',
                         help='Debug')
+    padd('--debug_neighbour', default=False, action='store_true',
+                        help='Debug nearest neighbour training')
     padd('--model_path', type=str, default="saved_models/lstm_torchtext2.pt",\
                         help='where to save/load')
     padd('--no_load_embedding', action='store_false', default=True,

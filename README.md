@@ -35,6 +35,9 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 
 Please make sure to update tests as appropriate.
 
+## References
+- [Distances for KNN](https://arxiv.org/pdf/1708.04321.pdf)
+
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)
 
