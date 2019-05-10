@@ -303,7 +303,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
     # with torch.no_grad():
 
     # Nearest neigh function
-    nearest = NearestNeighbours(model.embedding.weight().detach().cpu(), args.device, args.distance_func)
+    nearest = NearestNeighbours(model.embedding.weight.detach().cpu(), args.device, args.distance_func)
     if str(args.device) == 'cuda' and not args.no_parallel:
         nearest = nn.DataParallel(nearest)
 
