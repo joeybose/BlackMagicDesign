@@ -374,10 +374,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
     if args.diff_nn:
         # Differentiable nearest neigh auxiliary loss
         diff_nearest_func = DiffNearestNeighbours(model.embedding.weight.detach().cpu(),
-                              args.device, args.nn_temp,100,
+                              args.device, args.nn_temp,args.decay_schedule,
                               args.distance_func, args=args)
         if str(args.device) == 'cuda' and not args.no_parallel:
             diff_nearest_func = nn.DataParallel(diff_nearest_func)
+        args.experiment.log_text("Starting nearest neighbour temp {}".format(\
+                                                    diff_nearest_func.temp))
 
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
@@ -447,6 +449,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     adv_x = adv_x.type(x.dtype) # data type match
                     # Percent of changed tokens on adversarial
                     changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
+                    assert(changed == 0)
 
                 # Losses
                 # TODO: still need L2?
@@ -476,6 +479,9 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         neig_eg, test_accuracies = utils.evaluate_neighbours(test_loader,
                                                         model, G, args, epoch)
         if args.comet:
+            if args.diff_nn:
+                args.experiment.log_metric("Diff nearest neigh temp",
+                                            diff_nearest_func.temp,step=epoch)
             args.experiment.log_text(neig_eg)
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
             args.experiment.log_metric("Whitebox Recon loss",loss_perturb,step=epoch)

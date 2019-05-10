@@ -101,7 +101,8 @@ class NearestNeighbours(nn.Module):
         return nearest
 
 class DiffNearestNeighbours(NearestNeighbours):
-    def __init__(self, emb_array, device, diff_temp, decay_rate, distance, args):
+    def __init__(self, emb_array, device, diff_temp, decay_schedule, distance,
+                                                                        args):
         """
         Differentiable Nearest Neighbour. As temperature decreases, converges
         to nearest neighbour
@@ -113,15 +114,16 @@ class DiffNearestNeighbours(NearestNeighbours):
         # self.temp = torch.tensor(diff_temp, requires_grad=False).to(device)
         # self.min_temp = torch.tensor(0.05, requires_grad=False).to(device)
         self.temp = diff_temp
-        self.min_temp = 0.05
+        self.min_temp = 0.01
         self.batch_count = 0
-        self.decay_rate = decay_rate
+        self.decay_schedule = decay_schedule
         self.args = args
+        self.decay_rate = args.decay_rate
 
     def temp_update(self):
         self.batch_count += 1
         if self.batch_count % self.decay_rate == 0:
-            self.temp=torch.min(self.temp*0.95, self.min_temp)
+            self.temp=torch.min(self.temp*self.decay_rate, self.min_temp)
 
     def forward(self, batch, mask=None, batch_token=None, test_temp=None):
         """

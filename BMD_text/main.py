@@ -150,6 +150,10 @@ if __name__ == '__main__':
 			help='Lambda for L2 lagrange penalty (default: 0.1)')
     padd('--nn_temp', type=float, default=1.0, metavar='M',
                    help='Starting diff. nearest neighbour temp (default: 1.0)')
+    padd('--temp_decay_rate', type=float, default=0.9, metavar='M',
+                   help='Nearest neighbour temp decay rate (default: 0.9)')
+    padd('--temp_decay_schedule', type=float, default=100, metavar='M',
+                   help='How many batches before decay (default: 100)')
     padd('--bb_steps', type=int, default=2000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
     padd('--attack_epochs', type=int, default=10, metavar='N',
