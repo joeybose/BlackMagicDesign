@@ -166,13 +166,37 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
 
     return out, delta
 
-def get_node_neighbors(g,node):
+def get_node_neighbors(g,node,all_ids,min_neighbors=False,target_mask=None):
     predecessors = g.predecessors(node)
     successors = g.successors(node)
     predecessors = set(predecessors.cpu().numpy()[0:5])
     successors = set(successors.cpu().numpy()[0:5])
     neighbors = predecessors.union(successors)
+    if min_neighbors:
+        ipdb.set_trace()
+        if len(neighbors) < 5:
+            num_neigh_samples = 5 - len(neighbors)
+            if target_mask is not None:
+                neigh_set = all_ids - set(target_ids).union(neighbors)
+            else:
+                neigh_set = all_ids - set(neighbors)
+            neigh_array = np.asarray(list(neigh_set))
+            sampled_ids = np.random.choice(neigh_array,num_neigh_samples,replace=False)
+            neighbors = itertools.chain.from_iterable([neighbors,sampled_ids])
     return list(neighbors)
+
+def create_single_node_masks(g,labels,correct_indices,top_nodes,bot_nodes,\
+                      num_target_samples=20,num_attack_samples=200):
+    top_nodes = top_nodes.squeeze().cpu().numpy()
+    bot_nodes = bot_nodes.squeeze().cpu().numpy()
+    all_ids = set(range(len(labels)))
+    target_set = set(correct_indices) - set(top_nodes)
+    target_set = target_set - set(bot_nodes)
+    target_ids = np.random.choice(list(target_set),num_target_samples,replace=False)
+    target_ids = list(target_ids) + list(top_nodes) + list(bot_nodes)
+    attacker_ids = [get_node_neighbors(g,int(node),all_ids,True) for node in target_ids]
+    ipdb.set_trace()
+    return target_ids, attacker_ids
 
 def create_node_masks(g,labels,correct_indices,top_nodes,bot_nodes,\
                       num_target_samples=20,num_attack_samples=200):
@@ -183,7 +207,7 @@ def create_node_masks(g,labels,correct_indices,top_nodes,bot_nodes,\
     target_set = target_set - set(bot_nodes)
     target_ids = np.random.choice(list(target_set),num_target_samples,replace=False)
     target_ids = list(target_ids) + list(top_nodes) + list(bot_nodes)
-    attacker_nodes = [get_node_neighbors(g,int(node)) for node in target_ids]
+    attacker_nodes = [get_node_neighbors(g,int(node),all_ids) for node in target_ids]
     attacker_nodes = list(itertools.chain.from_iterable(attacker_nodes))
     num_attack_samples = num_attack_samples - len(attacker_nodes)
     attack_set = all_ids - set(target_ids).union(attacker_nodes)
@@ -282,6 +306,12 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
                     loss, loss_perturb, kl_div, correct, len(masked_labels),
                     100. * correct / len(masked_labels)))
         L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G,target_mask,attack_mask)
+
+    if args.single_node_attack and args.influencer_attack:
+        single_target_mask, single_attack_mask = create_single_node_masks(g,labels,correct_indices.squeeze().cpu().numpy(),\
+                          top_nodes,bot_nodes)
+        L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,\
+                      G,single_target_mask,single_attack_mask)
 
 def soft_reward(pred, targ):
     """

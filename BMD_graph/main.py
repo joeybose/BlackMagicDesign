@@ -134,6 +134,8 @@ if __name__ == '__main__':
                         help='Modify the Adjacency Matrix of the Classifier')
     parser.add_argument('--influencer_attack', default=False, action='store_true',
                         help='Influencer attack like Zuegner et. al')
+    parser.add_argument('--single_node_attack', default=False, action='store_true',
+                        help='Attack on a single node like Zuegner et. al')
     parser.add_argument('--no_pgd_optim', default=False, action='store_true',
                         help='Use Lagrangian objective instead of PGD')
     # Bells
