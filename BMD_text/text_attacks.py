@@ -232,8 +232,12 @@ def L2_test_model(args,epoch,test_loader,model,G):
         # plot_image_to_comet(args,adv_image,file_base+"Adv.png",normalize=True)
         # plot_image_to_comet(args,delta_image,file_base+"delta.png",normalize=True)
 
-def carlini_wagner_loss(args, output, target, scale_const=1):
-    # compute the probability of the label class versus the maximum other
+def carlini_wagner_loss(args, output, target, scale_const=1, mask=None):
+    """
+    compute the probability of the label class versus the maximum other
+    Args:
+        mask: tensor with same shape as target. Elements with 0 will mask loss
+    """
     target_onehot = torch.zeros(target.size() + (args.classes,))
     target_onehot = target_onehot.cuda()
     target_onehot.scatter_(1, target.unsqueeze(1), 1.)
@@ -247,6 +251,9 @@ def carlini_wagner_loss(args, output, target, scale_const=1):
     # else:
         # if non-targeted, optimize for making this class least likely.
     loss1 = torch.clamp(real - other + confidence, min=0.)  # equiv to max(..., 0.)
+    if mask is not None:
+        # loss1 = loss1*mask
+        loss1 = loss1*mask.type(loss1.dtype) # type match
     loss = torch.mean(scale_const * loss1)
 
     return loss
@@ -371,6 +378,9 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         train_ae(args, train_loader, G)
     utils.evaluate(model,test_loader)
 
+    # Start temperature
+    temp = args.nn_temp
+
     if args.diff_nn:
         # Differentiable nearest neigh auxiliary loss
         diff_nearest_func = DiffNearestNeighbours(model.embedding.weight.detach().cpu(),
@@ -381,9 +391,6 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         if args.comet:
             args.experiment.log_text("Starting nearest neighbour temp {}".format(\
                                                                         temp))
-
-    # Start temperature
-    temp = args.nn_temp
 
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
@@ -462,15 +469,16 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 l2_dist = L2_dist(input_embeddings,adv_embeddings)
                 loss_perturb =  l2_dist / len(input_embeddings)
 
-                # Get predictions on original embeddings
-                # orig_preds = model(input_embeddings,use_embed=True).detach()
-                # Create loss mask
-                # orig_preds = torch.argmax(orig_preds, dim=1)
-                # loss_mask = orig_preds.eq(y.data)
 
                 # Evaluate target model with adversarial samples
                 preds = model(adv_embeddings,use_embed=True)
-                loss_misclassify = misclassify_loss_func(args,preds,y)
+                # Create loss mask
+                pred_label = torch.argmax(preds, dim=1)
+                # If samples incorrectly classified, then no backprop for those
+                loss_mask = pred_label.eq(y.data)
+
+                loss_misclassify = misclassify_loss_func(args,preds,y,
+                                                                mask=loss_mask)
 
                 loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
                 loss.backward()

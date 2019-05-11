@@ -4,5 +4,5 @@
 #python main.py --white --no_pgd_optim --hidden_init --namestr="carlini_Text" --LAMBDA=0.01 --carlini_loss --save_adv_samples --batch_size=64 --prepared_data='dataloader/64_prepared_data.pickle' --nearest_neigh_all --diff_nn --comet
 
 # test temperature decay on few batches
-python main.py --white --no_pgd_optim --hidden_init --namestr="carlini_Text" --LAMBDA=0.01 --carlini_loss --save_adv_samples --batch_size=64 --prepared_data='dataloader/64_prepared_data.pickle' --nearest_neigh_all --diff_nn --temp_decay_schedule 10 --max_batches 5
+python main.py --white --no_pgd_optim --hidden_init --namestr="carlini_Text" --LAMBDA=0.01 --carlini_loss --save_adv_samples --batch_size=32 --prepared_data='dataloader/32_prepared_data.pickle' --nearest_neigh_all --diff_nn --temp_decay_schedule 20 --max_batches 20 --comet
 
