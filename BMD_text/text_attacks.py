@@ -374,12 +374,16 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
     if args.diff_nn:
         # Differentiable nearest neigh auxiliary loss
         diff_nearest_func = DiffNearestNeighbours(model.embedding.weight.detach().cpu(),
-                              args.device, args.nn_temp,args.decay_schedule,
+                              args.device, args.nn_temp,args.temp_decay_schedule,
                               args.distance_func, args=args)
         if str(args.device) == 'cuda' and not args.no_parallel:
             diff_nearest_func = nn.DataParallel(diff_nearest_func)
-        args.experiment.log_text("Starting nearest neighbour temp {}".format(\
-                                                    diff_nearest_func.temp))
+        if args.comet:
+            args.experiment.log_text("Starting nearest neighbour temp {}".format(\
+                                                                        temp))
+
+    # Start temperature
+    temp = args.nn_temp
 
     ''' Training Phase '''
     for epoch in range(0,args.attack_epochs):
@@ -424,8 +428,10 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     adv_embeddings = input_embeddings + delta_embeddings
                     if args.diff_nn:
                         # Differentiable nearest neighbour embeddings
+                        if batch_idx % args.temp_decay_schedule == 0:
+                            temp=max(temp*args.temp_decay_rate, 0.01)
                         adv_embeddings = diff_nearest_func(adv_embeddings,
-                                                                batch_token=x)
+                                                    batch_token=x, temp=temp)
 
                 # Unit test, changed should be 0
                 if args.debug_neighbour:
@@ -455,6 +461,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 # TODO: still need L2?
                 l2_dist = L2_dist(input_embeddings,adv_embeddings)
                 loss_perturb =  l2_dist / len(input_embeddings)
+
+                # Get predictions on original embeddings
+                # orig_preds = model(input_embeddings,use_embed=True).detach()
+                # Create loss mask
+                # orig_preds = torch.argmax(orig_preds, dim=1)
+                # loss_mask = orig_preds.eq(y.data)
 
                 # Evaluate target model with adversarial samples
                 preds = model(adv_embeddings,use_embed=True)

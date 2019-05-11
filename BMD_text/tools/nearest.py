@@ -118,14 +118,17 @@ class DiffNearestNeighbours(NearestNeighbours):
         self.batch_count = 0
         self.decay_schedule = decay_schedule
         self.args = args
-        self.decay_rate = args.decay_rate
+        self.decay_rate = args.temp_decay_rate
+
+    def get_temp(self):
+        return self.temp
 
     def temp_update(self):
         self.batch_count += 1
-        if self.batch_count % self.decay_rate == 0:
-            self.temp=torch.min(self.temp*self.decay_rate, self.min_temp)
+        if self.batch_count % self.decay_schedule == 0:
+            self.temp=max(self.temp*self.decay_rate, self.min_temp)
 
-    def forward(self, batch, mask=None, batch_token=None, test_temp=None):
+    def forward(self, batch, mask=None, batch_token=None, temp=None):
         """
         Args:
             batch_token: batch but with original idx instead of embeddings, use
@@ -134,10 +137,9 @@ class DiffNearestNeighbours(NearestNeighbours):
             test_temp: will use this temp instead of self.temp, for debugging
         """
         # Maybe decay temp
-        if test_temp is None:
+        if temp is None:
             self.temp_update()
-        else:
-            self.temp = test_temp
+            temp = self.temp
 
         shape = batch.shape
 
@@ -153,7 +155,7 @@ class DiffNearestNeighbours(NearestNeighbours):
             cosine_dists = cosine_dists.double() * mask.double()
 
         # Get weights to nearest neigh: Softmax with temp, reverse sign
-        soft = F.softmax(((-1)*cosine_dists)/self.temp, dim=1)
+        soft = F.softmax(((-1)*cosine_dists)/temp, dim=1)
 
         # Unit test
         # Most probable embedding must be same as nearest
