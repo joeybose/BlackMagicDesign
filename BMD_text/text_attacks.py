@@ -501,7 +501,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         if args.comet:
             if args.diff_nn:
                 args.experiment.log_metric("Diff nearest neigh temp",
-                                            diff_nearest_func.temp,step=epoch)
+                                            diff_nearest_func.module.temp,step=epoch)
             args.experiment.log_text(neig_eg)
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
             args.experiment.log_metric("Whitebox Recon loss",loss_perturb,step=epoch)
