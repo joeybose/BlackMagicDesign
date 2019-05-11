@@ -476,12 +476,12 @@ class ConvGenerator(nn.Module):
         ngf = 64
         self.latent = latent
         self.use_flows = use_flow
+        self.log_det_j = 0.
         # Flow parameters
         if self.use_flows:
             self.flow = flows
             self.num_flows = 30
             self.num_flows = self.num_flows
-            self.log_det_j = 0.
             # Amortized flow parameters
             self.amor_u = nn.Linear(num_planes, self.num_flows * self.latent)
             self.amor_w = nn.Linear(num_planes, self.num_flows * self.latent)
@@ -555,12 +555,13 @@ class ConvGenerator(nn.Module):
         out = out.view(out.size(0), -1)
         mu,logvar,u,w,b  = self.encode(out)
         z = self.reparameterize(mu,logvar)
-        # Construct more expressive posterior with NF
-        for k in range(self.num_flows):
-            flow_k = getattr(self, 'flow_' + str(k))
-            z_k, log_det_jacobian = flow_k(z, u[:, k, :, :], w[:, k, :, :], b[:, k, :, :])
-            z = z_k
-            self.log_det_j += log_det_jacobian
+        if self.use_flows:
+            # Construct more expressive posterior with NF
+            for k in range(self.num_flows):
+                flow_k = getattr(self, 'flow_' + str(k))
+                z_k, log_det_jacobian = flow_k(z, u[:, k, :, :], w[:, k, :, :], b[:, k, :, :])
+                z = z_k
+                self.log_det_j += log_det_jacobian
 
         delta = self.decode(z)
         kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())

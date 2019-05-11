@@ -154,6 +154,51 @@ def single_white_box_generator(args, image, target, model, G):
         plot_image_to_comet(args,delta_image,"delta.png")
     return out, delta
 
+def PGD_generate_multiple_samples(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
+    epsilon = args.epsilon
+    test_itr = tqdm(enumerate(test_loader),\
+            total=len(test_loader.dataset)/args.test_batch_size)
+    correct_test = 0
+    correct_batch_avg_list = []
+    for batch_idx, (data, target) in test_itr:
+        x, target = data.to(args.device), target.to(args.device)
+        correct_batch_avg = 0
+        for t in range(10):
+            if not args.vanilla_G:
+                delta, kl_div  = G(x)
+            else:
+                delta = G(x)
+            delta = delta.view(delta.size(0), nc, h, w)
+            # Clipping is equivalent to projecting back onto the l_\infty ball
+            # This technique is known as projected gradient descent (PGD)
+            delta.data.clamp_(-epsilon, epsilon)
+            delta.data = torch.clamp(x.data + delta.data,-1.,1.) - x.data
+            pred = model(x.detach() + delta)
+            out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+            correct_batch_avg = out.eq(target.unsqueeze(1).data).sum()
+
+        correct_batch_avg = correct_batch_avg / (10*len(x))
+        correct_batch_avg_list.append(correct_batch_avg)
+        correct_test += out.eq(target.unsqueeze(1).data).sum()
+    batch_avg = sum(correct_batch_avg) / len(correct_batch_avg)
+    print('\nTest set: Accuracy: {}/{} ({:.0f}%) | Multiple Samples Accuracy{:.0f}\n'\
+            .format(correct_test, len(test_loader.dataset),\
+                100. * correct_test / len(test_loader.dataset), batch_avg))
+    if args.comet:
+        if not args.mnist:
+            index = np.random.choice(len(x) - 64, 1)[0]
+            clean_image = (x)[index:index+64].detach()#.permute(-1,1,2,0)
+            adv_image = (x + delta)[index:index+64].detach()#.permute(-1,1,2,0)
+            delta_image = (delta)[index:index+64].detach()#.permute(-1,1,2,0)
+        else:
+            clean_image = (x)[0].detach()
+            adv_image = (x + delta)[0].detach()
+            delta_image = (delta)[0].detach()
+        plot_image_to_comet(args,clean_image,"clean.png",normalize=True)
+        plot_image_to_comet(args,adv_image,"Adv.png",normalize=True)
+        plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
+
+
 def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
     ''' Testing Phase '''
     epsilon = args.epsilon
@@ -264,7 +309,8 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
         train_itr = tqdm(enumerate(train_loader),\
                 total=len(train_loader.dataset)/args.batch_size)
         correct = 0
-        PGD_test_model(args,epoch,test_loader,model,G,nc,h,w)
+        PGD_generate_multiple_samples(args,epoch,test_loader,model,G,nc,h,w)
+        # PGD_test_model(args,epoch,test_loader,model,G,nc,h,w)
         for batch_idx, (data, target) in train_itr:
             x, target = data.to(args.device), target.to(args.device)
             for t in range(args.PGD_steps):
