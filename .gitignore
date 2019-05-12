@@ -10,6 +10,7 @@ settings.json
 temp/
 demo.text
 .data/
+experiments/
 *.pickle
 
 ./BMD_text/saved_models/cnn_.pt
