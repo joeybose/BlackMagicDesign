@@ -309,8 +309,8 @@ def PGD_white_box_generator(args, train_loader, test_loader, model, G,\
         train_itr = tqdm(enumerate(train_loader),\
                 total=len(train_loader.dataset)/args.batch_size)
         correct = 0
-        PGD_generate_multiple_samples(args,epoch,test_loader,model,G,nc,h,w)
-        # PGD_test_model(args,epoch,test_loader,model,G,nc,h,w)
+        # PGD_generate_multiple_samples(args,epoch,test_loader,model,G,nc,h,w)
+        PGD_test_model(args,epoch,test_loader,model,G,nc,h,w)
         for batch_idx, (data, target) in train_itr:
             x, target = data.to(args.device), target.to(args.device)
             for t in range(args.PGD_steps):
@@ -379,7 +379,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
                 adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
                 pred = model(adv_inputs)
                 out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-                loss_misclassify = misclassify_loss_func(args,pred,target) / len(x)
+                loss_misclassify = misclassify_loss_func(args,pred,target)
                 loss_perturb = L2_dist(x,adv_inputs) / len(x)
                 loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
                 opt.zero_grad()
@@ -387,6 +387,9 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
                 opt.step()
                 iter_count = iter_count + 1
                 num_unperturbed = out.eq(target.unsqueeze(1).data).sum()
+                # if num_unperturbed > 120:
+                    # ipdb.set_trace()
+                # print("Num unperturbed %f" %(num_unperturbed))
                 if iter_count > args.max_iter:
                     break
             correct += out.eq(target.unsqueeze(1).data).sum()
@@ -399,10 +402,11 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
             args.experiment.log_metric("Adv Accuracy",\
                     100.*correct/len(train_loader.dataset),step=epoch)
 
-        print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
-                .format(epoch,\
-                    loss, correct, len(train_loader.dataset),
-                    100. * correct / len(train_loader.dataset)))
+        print('\nTrain: Epoch:{} Loss: {:.4f}, Misclassification Loss \
+                :{:.4f}, Perturbation Loss {:.4f} Accuracy: {}/{} ({:.0f}%)\n'\
+            .format(epoch,\
+                loss, loss_misclassify, loss_perturb, correct, len(train_loader.dataset),
+                100. * correct / len(train_loader.dataset)))
 
     return out, delta
 
