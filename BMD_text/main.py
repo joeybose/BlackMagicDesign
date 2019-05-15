@@ -72,8 +72,8 @@ def main(args):
 
     # Load saved
     if args.load_model:
-        G = torch.load(args.model_path)
-        print("Loaded saved model from: {}".format(args.model_path))
+        G = torch.load(args.adv_model_path)
+        print("Loaded saved model from: {}".format(args.adv_model_path))
 
     # Efficient compute
     G = G.to(args.device)
@@ -274,6 +274,8 @@ if __name__ == '__main__':
                           help='Evaluate near. neig. for whole evaluation set')
     padd("--comet", action="store_true", default=False,
             help='Use comet for logging')
+    padd("--offline_comet", action="store_true", default=False,
+            help='Use comet offline. To upload, after training run: comet-upload file.zip')
     padd("--comet_username", type=str, default="joeybose",
             help='Username for comet logging')
     padd("--comet_apikey", type=str,\
@@ -286,7 +288,9 @@ if __name__ == '__main__':
                         help='Whether to load a checkpointed model')
     padd('--save_model', default=False, action='store_true',
                         help='Whether to checkpointed model')
-    padd('--model_path', type=str, default="saved_models/adv_model.pt",\
+    padd('--model_path', type=str, default="saved_models/lstm_torchtext2.pt",\
+                        help='where to save/load')
+    padd('--adv_model_path', type=str, default="saved_models/adv_model.pt",\
                         help='where to save/load')
     padd('--no_load_embedding', action='store_false', default=True,
                     help='load Glove embeddings')
@@ -329,11 +333,14 @@ if __name__ == '__main__':
                 project_name="black-magic-design",
                 workspace=args.comet_username)
     if args.offline_comet:
+        offline_path = "temp/offline_comet"
+        if not os.path.exists(offline_path):
+            os.makedirs(offline_path)
         from comet_ml import OfflineExperiment
-        experiment = OfflineExperiment(api_key=args.comet_apikey,
+        experiment = OfflineExperiment(
                 project_name="black-magic-design",
                 workspace=args.comet_username,
-                offline_directory="/temp/offline_comet")
+                offline_directory=offline_path)
     # To upload offline comet, run: comet-upload file.zip
     if args.comet or args.offline_comet:
         experiment.set_name(args.namestr)

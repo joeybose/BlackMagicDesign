@@ -521,7 +521,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     100. * correct / len(train_loader.dataset)))
         # Checkpoint
         if args.save_model:
-            with open(args.model_path, 'wb') as f:
+            with open(args.adv_model_path, 'wb') as f:
                 torch.save(G, f)
 
 
