@@ -70,6 +70,11 @@ def main(args):
                               hidden_init=args.hidden_init,
                               dropout=args.dropout)
 
+    # Load saved
+    if args.load_model:
+        G = torch.load(args.model_path)
+        print("Loaded saved model from: {}".format(args.model_path))
+
     # Efficient compute
     G = G.to(args.device)
     G = nn.DataParallel(G)
@@ -277,7 +282,11 @@ if __name__ == '__main__':
                         help='Debug')
     padd('--debug_neighbour', default=False, action='store_true',
                         help='Debug nearest neighbour training')
-    padd('--model_path', type=str, default="saved_models/lstm_torchtext2.pt",\
+    padd('--load_model', default=False, action='store_true',
+                        help='Whether to load a checkpointed model')
+    padd('--save_model', default=False, action='store_true',
+                        help='Whether to checkpointed model')
+    padd('--model_path', type=str, default="saved_models/adv_model.pt",\
                         help='where to save/load')
     padd('--no_load_embedding', action='store_false', default=True,
                     help='load Glove embeddings')

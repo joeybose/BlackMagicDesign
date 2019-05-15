@@ -519,6 +519,10 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                 .format(epoch,\
                     loss, correct, len(train_loader.dataset),
                     100. * correct / len(train_loader.dataset)))
+        # Checkpoint
+        if args.save_model:
+            with open(args.model_path, 'wb') as f:
+                torch.save(G, f)
 
 
 def soft_reward(pred, targ):
