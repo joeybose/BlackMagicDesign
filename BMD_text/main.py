@@ -310,7 +310,7 @@ if __name__ == '__main__':
         args.comet_apikey = data["apikey"]
         args.comet_username = data["username"]
 
-    # Prep file to save samples
+    # Prep file to save adversarial samples
     if args.save_adv_samples:
         now = datetime.datetime.now()
         if os.path.exists(args.sample_file):
@@ -322,11 +322,20 @@ if __name__ == '__main__':
     if args.debug is False:
         ipdb.set_trace = lambda: None
 
+    # Comet logging
     args.device = torch.device("cuda" if use_cuda else "cpu")
     if args.comet:
-        experiment = Experiment(api_key=args.comet_apikey,\
-                project_name="black-magic-design",\
+        experiment = Experiment(api_key=args.comet_apikey,
+                project_name="black-magic-design",
                 workspace=args.comet_username)
+    if args.offline_comet:
+        from comet_ml import OfflineExperiment
+        experiment = OfflineExperiment(api_key=args.comet_apikey,
+                project_name="black-magic-design",
+                workspace=args.comet_username,
+                offline_directory="/temp/offline_comet")
+    # To upload offline comet, run: comet-upload file.zip
+    if args.comet or args.offline_comet:
         experiment.set_name(args.namestr)
         def log_text(self, msg):
             # Change line breaks for html breaks
