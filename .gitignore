@@ -10,8 +10,8 @@ settings.json
 temp/
 demo.text
 .data/
-experiments/
 *.pickle
+experiments/
 
 ./BMD_text/saved_models/cnn_.pt
 ./BMD_text/saved_models/lstm_.pt
