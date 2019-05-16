@@ -355,6 +355,13 @@ def train_ae(args, train_loader, G):
             args.experiment.log_metric("VAE Accuracy",\
                     accuracy,step=batch_idx)
 
+def white_box_resampler_test(args, test_loader, unk_model, G):
+    """
+    Generate attack on test set. For failed attack, resample latent space and
+    see if now successful
+    """
+    pass
+
 def L2_white_box_generator(args, train_loader, test_loader, model, G):
     """
     Args:

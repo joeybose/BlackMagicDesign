@@ -297,6 +297,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
     correct_orig = []
     correct_adv_emb = []
     correct_adv_tok = []
+    resample_adv_tok = []
     tokens_changed_perc = []
     G.eval()
     model.eval()
@@ -341,10 +342,33 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
         adv_x = adv_x.type(x.dtype) # data type match
         adv_tok_preds = model(adv_x).squeeze(1)
         prob_adv_tok, adv_tok_idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
-        correct_adv_tok.extend(adv_tok_idx.eq(y).cpu().numpy().tolist())
+        # Get boolean tensor indicating those correctly predicted
+        corr_adv_tensor = adv_tok_idx.eq(y)
+        correct_adv_tok.extend(corr_adv_tensor.cpu().numpy().tolist())
         # Percent of changed tokens
         changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
         tokens_changed_perc.append(changed)
+
+        # Resample failed token examples
+        if args.resample_test:
+            delta_embeddings, kl_div = G(x.detach())
+            adv_embeddings = input_embeddings + delta_embeddings.detach()
+            adv_x = nearest(adv_embeddings, mask)
+            adv_x = adv_x.type(x.dtype) # data type match
+            adv_tok_preds = model(adv_x).squeeze(1)
+            prob_adv_tok, adv_tok_idx = torch.max(\
+                                            F.softmax(adv_tok_preds,dim=1), 1)
+
+            # From previous correct adv tensor,get indices for correctly pred
+            # Since we care about those on which attack failed
+            idx = corr_adv_tensor > 0
+            # fail_mask = (corr_adv_tensor-1)*(-1)
+            # fail_count = fail_mask.sum()
+            correct_failed_adv_tok = adv_tok_idx.eq(y)
+            failed_only = correct_failed_adv_tok[idx]
+            resample_adv_tok.extend(failed_only.cpu().numpy().tolist())
+
+        # For debugging, only do one iteration
         if args.nearest_neigh_all == False:
             break
 
@@ -355,6 +379,15 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
             "acc adv tok": sum(correct_adv_tok)/len(correct_adv_tok),
             "perc tok changed": sum(tokens_changed_perc)/len(tokens_changed_perc)
             }
+
+    # Add resampled data
+    if args.resample_test:
+        accuracies["resampled examples"] = len(resample_adv_tok)
+        if len(resample_adv_tok) == 0:
+            accuracies["acc on resampled"] = "NaN"
+        else:
+            accuracies["acc on resampled"] = sum(resample_adv_tok)/len(\
+                                                            resample_adv_tok)
 
     if args.comet:
         if mode == 'Train':

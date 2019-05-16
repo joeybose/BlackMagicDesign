@@ -13,6 +13,7 @@ python main.py --white \
     --diff_nn \
     --max_batches 1 \
     --max_iter 1 \
+    --save_model \
     --comet \
     --offline_comet
 

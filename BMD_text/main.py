@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import json, os
+import json, os, sys
 import datetime
 import argparse
 from types import MethodType
@@ -70,14 +70,14 @@ def main(args):
                               hidden_init=args.hidden_init,
                               dropout=args.dropout)
 
+    # Efficient compute
+    G = G.to(args.device)
+    G = nn.DataParallel(G)
+
     # Load saved
     if args.load_model:
         G = torch.load(args.adv_model_path)
         print("Loaded saved model from: {}".format(args.adv_model_path))
-
-    # Efficient compute
-    G = G.to(args.device)
-    G = nn.DataParallel(G)
 
     # Maybe Add A Flow
     norm_flow = None
@@ -85,7 +85,7 @@ def main(args):
         # norm_flow = flows.NormalizingFlow(30, args.latent).to(args.device)
         norm_flow = flows.Planar
 
-    # Test white box
+    # Train white box
     if args.white:
         # Choose Attack Function
         if args.no_pgd_optim:
@@ -93,8 +93,17 @@ def main(args):
         else:
             white_attack_func = text_attacks.PGD_white_box_generator
 
-        # Test on a single data point or entire dataset
-        if args.single_data:
+        # Test resampling capability
+        if args.resample_test:
+            if not args.load_model:
+                msg = "You need to pass --load_model to"
+                msg += " load a model in order to resample"
+                sys.exit(msg)
+            utils.evaluate_neighbours(test_loader, unk_model, G, args, 0)
+            sys.exit(0)
+
+        # Train on a single data point or entire dataset
+        elif args.single_data:
             # pred, delta = attacks.single_white_box_generator(args, data, target, unk_model, G)
             # pred, delta = attacks.white_box_untargeted(args, data, target, unk_model)
             text_attacks.whitebox_pgd(args, data, target, unk_model)
@@ -177,6 +186,8 @@ if __name__ == '__main__':
                         help='Test Batch size. 256 requires 12GB GPU memory')
     padd('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
+    padd('--resample_test', default=False, action='store_true',
+                        help='Load model and test resampling capability')
     padd('--clip_grad', default=True, action='store_true',
                         help='Clip grad norm')
     padd('--train_vae', default=False, action='store_true',
@@ -289,9 +300,9 @@ if __name__ == '__main__':
     padd('--save_model', default=False, action='store_true',
                         help='Whether to checkpointed model')
     padd('--model_path', type=str, default="saved_models/lstm_torchtext2.pt",\
-                        help='where to save/load')
+                        help='where to save/load target model')
     padd('--adv_model_path', type=str, default="saved_models/adv_model.pt",\
-                        help='where to save/load')
+                        help='where to save/load adversarial')
     padd('--no_load_embedding', action='store_false', default=True,
                     help='load Glove embeddings')
     padd('--namestr', type=str, default='BMD Text', \
@@ -352,3 +363,6 @@ if __name__ == '__main__':
         args.experiment = experiment
 
     main(args)
+
+
+
