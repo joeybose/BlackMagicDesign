@@ -24,6 +24,14 @@ def reduce_sum(x, keepdim=True):
 def L2_dist(x, y):
     return reduce_sum((x - y)**2)
 
+def L2_norm_dist(x, y):
+    dist = torch.norm(x - y, p=2,dim=(1,2,3))
+    return dist.sum()
+
+def Linf_dist(x, y):
+    dist = torch.norm(x - y, float('inf'),dim=(1,2,3))
+    return dist.sum()
+
 class Normalize(nn.Module):
     """
     Normalize an image as part of a torch nn.Module

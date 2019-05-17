@@ -432,7 +432,7 @@ class Generator(nn.Module):
 
 class ConvGenerator(nn.Module):
     def __init__(self, block, nblocks, growth_rate=12, reduction=0.5,\
-            num_classes=10, latent=50, flows=None, use_flow=False):
+            num_classes=10, latent=50, flows=None, use_flow=False, deterministic=False):
         """
         A modified VAE. Latent is Gaussian (0, sigma) of dimension latent.
         Decode latent to a noise vector of `input_size`,
@@ -477,6 +477,10 @@ class ConvGenerator(nn.Module):
         self.latent = latent
         self.use_flows = use_flow
         self.log_det_j = 0.
+
+        if deterministic:
+            self.deterministic = deterministic
+
         # Flow parameters
         if self.use_flows:
             self.flow = flows
@@ -535,10 +539,14 @@ class ConvGenerator(nn.Module):
         return h1,h2,u,w,b
 
     def reparameterize(self, mu, logvar):
-        std = logvar.mul(0.5).exp_()
-        eps = torch.cuda.FloatTensor(std.size()).normal_()
-        eps = Variable(eps)
-        return eps.mul(std).add_(mu)
+        if self.deterministic:
+            z = mu + logvar.mul(0.5).exp_()
+            return z
+        else:
+            std = logvar.mul(0.5).exp_()
+            eps = torch.cuda.FloatTensor(std.size()).normal_()
+            eps = Variable(eps)
+            return eps.mul(std).add_(mu)
 
     def decode(self, z):
         z = z.view(-1,self.latent,1,1)
@@ -564,9 +572,12 @@ class ConvGenerator(nn.Module):
                 self.log_det_j += log_det_jacobian
 
         delta = self.decode(z)
-        kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        kl_div = kl_div - self.log_det_j
-        kl_div = kl_div / x.size(0)  # mean over batch
+        if self.deterministic:
+            kl_div = torch.Tensor([0.]).cuda()
+        else:
+            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            kl_div = kl_div - self.log_det_j
+            kl_div = kl_div / x.size(0)  # mean over batch
         return delta, kl_div
 
 class DCGAN(nn.Module):

@@ -176,8 +176,9 @@ def main(args):
                 G = models.DCGAN().to(args.device)
                 G = nn.DataParallel(G.generator)
             else:
-                G = models.ConvGenerator(models.Bottleneck,[6,12,24,16],\
-                        growth_rate=12,flows=norm_flow,use_flow=args.use_flow).to(args.device)
+                G = models.ConvGenerator(models.Bottleneck,[6,12,24,16],growth_rate=12,\
+                                     flows=norm_flow,use_flow=args.use_flow,\
+                                     deterministic=args.deterministic_G).to(args.device)
                 G = nn.DataParallel(G)
             nc,h,w = 3,32,32
 
@@ -242,7 +243,7 @@ if __name__ == '__main__':
 			help='Lambda for L2 lagrange penalty (default: 0.1)')
     parser.add_argument('--bb_steps', type=int, default=2000, metavar='N',
                         help='Max black box steps per sample(default: 1000)')
-    parser.add_argument('--attack_epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--attack_epochs', type=int, default=50, metavar='N',
                         help='Max numbe of epochs to train G')
     parser.add_argument('--num_flows', type=int, default=30, metavar='N',
                         help='Number of Flows')
@@ -270,12 +271,16 @@ if __name__ == '__main__':
                         help='White Box test')
     parser.add_argument('--use_flow', default=False, action='store_true',
                         help='Add A NF to Generator')
+    parser.add_argument('--inf_loss', default=False, action='store_true',
+                        help='L-infinity penalty')
     parser.add_argument('--carlini_loss', default=False, action='store_true',
                         help='Use CW loss function')
     parser.add_argument('--no_pgd_optim', default=False, action='store_true',
                         help='Use Lagrangian objective instead of PGD')
     parser.add_argument('--vanilla_G', default=False, action='store_true',
                         help='Vanilla G White Box')
+    parser.add_argument('--deterministic_G', default=False, action='store_true',
+                        help='Deterministic Latent State')
     parser.add_argument('--single_data', default=False, action='store_true',
                         help='Test on a single data')
     # Bells

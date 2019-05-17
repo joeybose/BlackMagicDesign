@@ -259,8 +259,10 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
             .format(correct_test, len(test_loader.dataset),\
-                100. * correct_test / len(test_loader.dataset)))
+                100. * correct_test.cpu().numpy() / len(test_loader.dataset)))
     if args.comet:
+        test_acc = 100. * correct_test / len(test_loader.dataset)
+        args.experiment.log_metric("Test Adv Accuracy",test_acc,step=epoch)
         if not args.mnist:
             index = np.random.choice(len(x) - 64, 1)[0]
             clean_image = (x)[index:index+64].detach()
@@ -368,7 +370,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
             iter_count = 0
             loss_perturb = 20
             loss_misclassify = 10
-            while loss_misclassify > 0 and loss_perturb > 1:
+            while loss_misclassify > 0 and loss_perturb > 0:
                 if not args.vanilla_G:
                     delta, kl_div  = G(x)
                     kl_div = kl_div.sum() / len(x)
@@ -380,33 +382,33 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
                 pred = model(adv_inputs)
                 out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
                 loss_misclassify = misclassify_loss_func(args,pred,target)
-                loss_perturb = L2_dist(x,adv_inputs) / len(x)
+                if args.inf_loss:
+                    loss_perturb = Linf_dist(x,adv_inputs) / len(x)
+                else:
+                    loss_perturb = L2_dist(x,adv_inputs) / len(x)
                 loss = loss_misclassify + args.LAMBDA * loss_perturb + kl_div
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
                 iter_count = iter_count + 1
                 num_unperturbed = out.eq(target.unsqueeze(1).data).sum()
-                # if num_unperturbed > 120:
-                    # ipdb.set_trace()
-                # print("Num unperturbed %f" %(num_unperturbed))
                 if iter_count > args.max_iter:
                     break
             correct += out.eq(target.unsqueeze(1).data).sum()
 
         if args.comet:
+            acc = 100.*correct.cpu().numpy()/len(train_loader.dataset)
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
-            args.experiment.log_metric("Whitebox L2 loss",loss_perturb,step=epoch)
+            args.experiment.log_metric("Whitebox Perturb loss",loss_perturb,step=epoch)
             args.experiment.log_metric("Whitebox Misclassification loss",\
                     loss_misclassify,step=epoch)
-            args.experiment.log_metric("Adv Accuracy",\
-                    100.*correct/len(train_loader.dataset),step=epoch)
+            args.experiment.log_metric("Train Adv Accuracy",acc,step=epoch)
 
         print('\nTrain: Epoch:{} Loss: {:.4f}, Misclassification Loss \
                 :{:.4f}, Perturbation Loss {:.4f} Accuracy: {}/{} ({:.0f}%)\n'\
             .format(epoch,\
                 loss, loss_misclassify, loss_perturb, correct, len(train_loader.dataset),
-                100. * correct / len(train_loader.dataset)))
+                100. * correct.cpu().numpy() / len(train_loader.dataset)))
 
     return out, delta
 
