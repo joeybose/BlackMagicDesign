@@ -72,7 +72,8 @@ def main(args):
 
     # Efficient compute
     G = G.to(args.device)
-    G = nn.DataParallel(G)
+    if not args.no_parallel:
+        G = nn.DataParallel(G)
 
     # Load saved
     if args.load_model:
