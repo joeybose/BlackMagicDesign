@@ -95,10 +95,10 @@ def main(args):
 
         # Test resampling capability
         if args.resample_test:
-            if not args.load_model:
-                msg = "You need to pass --load_model to"
-                msg += " load a model in order to resample"
-                sys.exit(msg)
+            # if not args.load_model:
+                # msg = "You need to pass --load_model to"
+                # msg += " load a model in order to resample"
+                # sys.exit(msg)
             utils.evaluate_neighbours(test_loader, unk_model, G, args, 0)
             sys.exit(0)
 
