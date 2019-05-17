@@ -297,8 +297,10 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
     correct_orig = []
     correct_adv_emb = []
     correct_adv_tok = []
-    resample_adv_tok = []
     tokens_changed_perc = []
+    # Empty list to hold resampling results. Since we loop batches, results
+    # accumulate in appropriate list index, where index is the sampling number
+    resample_adv_tok = [[] for i in range(args.resample_iterations)]
     G.eval()
     model.eval()
     # with torch.no_grad():
@@ -351,22 +353,24 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
 
         # Resample failed token examples
         if args.resample_test:
-            delta_embeddings, kl_div = G(x.detach())
-            adv_embeddings = input_embeddings + delta_embeddings.detach()
-            adv_x = nearest(adv_embeddings, mask)
-            adv_x = adv_x.type(x.dtype) # data type match
-            adv_tok_preds = model(adv_x).squeeze(1)
-            prob_adv_tok, adv_tok_idx = torch.max(\
-                                            F.softmax(adv_tok_preds,dim=1), 1)
+            re_x = x.detach()
+            for j in range(args.resample_iterations):
+                delta_embeddings, kl_div = G(re_x)
+                adv_embeddings = input_embeddings + delta_embeddings.detach()
+                adv_x = nearest(adv_embeddings, mask)
+                adv_x = adv_x.type(x.dtype) # data type match
+                adv_tok_preds = model(adv_x).squeeze(1)
+                prob_adv_tok, adv_tok_idx = torch.max(\
+                                                F.softmax(adv_tok_preds,dim=1), 1)
 
-            # From previous correct adv tensor,get indices for correctly pred
-            # Since we care about those on which attack failed
-            idx = corr_adv_tensor > 0
-            # fail_mask = (corr_adv_tensor-1)*(-1)
-            # fail_count = fail_mask.sum()
-            correct_failed_adv_tok = adv_tok_idx.eq(y)
-            failed_only = correct_failed_adv_tok[idx]
-            resample_adv_tok.extend(failed_only.cpu().numpy().tolist())
+                # From previous correct adv tensor,get indices for correctly pred
+                # Since we care about those on which attack failed
+                idx = corr_adv_tensor > 0
+                # fail_mask = (corr_adv_tensor-1)*(-1)
+                # fail_count = fail_mask.sum()
+                correct_failed_adv_tok = adv_tok_idx.eq(y)
+                failed_only = correct_failed_adv_tok[idx]
+                resample_adv_tok[j].extend(failed_only.cpu().numpy().tolist())
 
         # For debugging, only do one iteration
         if args.nearest_neigh_all == False:
@@ -386,8 +390,8 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
         if len(resample_adv_tok) == 0:
             accuracies["acc on resampled"] = "NaN"
         else:
-            accuracies["acc on resampled"] = sum(resample_adv_tok)/len(\
-                                                            resample_adv_tok)
+            accuracies["acc on resampled"] = sum(resample_adv_tok[0])/len(\
+                                                            resample_adv_tok[0])
 
     if args.comet:
         if mode == 'Train':
@@ -404,6 +408,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
                     sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
             args.experiment.log_metric("Test perc tok changed",\
                     sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+
     t2 = datetime.now()
     # Save results to string, so easy to print and write to file
     # TODO: add number of flipped tokens
@@ -416,6 +421,24 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
     results += 'Test set size: {}\n'.format(len(correct_orig))
     for k, v in accuracies.items():
         results += '{:s} : {:0.2f}\n'.format(k,v)
+
+    # Log resampling stuff
+    if mode == 'Test' and args.resample_test:
+        results += 'Resampling perc fooled\n'
+        cumulative = 0
+        size_test = len(resample_adv_tok[0])
+        for j in range(len(resample_adv_tok)):
+            fooled = len(resample_adv_tok[j]) - sum(resample_adv_tok[j])
+            percent_fooled = fooled / len(resample_adv_tok[j])
+            cumulative += fooled
+            cum_per_fooled = cumulative / size_test
+            results += '| {:0.2f} |'.format(percent_fooled)
+            if args.comet:
+                args.experiment.log_metric("Resampling perc fooled",
+                                                    percent_fooled,step=j)
+                args.experiment.log_metric("Resampling perc cumulative fooled",
+                                                    cum_per_fooled,step=j)
+        results += '\n'
 
     results += '**Result on single ' + mode + ' set example**\n'
     results += 'Pred. on original input: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
