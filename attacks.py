@@ -274,6 +274,8 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
         if mode == 'Test' and args.resample_test:
             re_x = x.detach()
             for j in range(args.resample_iterations):
+                if len(re_x) == 0:
+                    break
                 delta, kl_div = G(re_x)
                 adv_inputs = re_x + delta.detach()
                 adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
@@ -283,10 +285,12 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
                 # From previous correct adv tensor,get indices for correctly pred
                 # Since we care about those on which attack failed
                 idx = corr_adv_tensor > 0
-                # fail_mask = (corr_adv_tensor-1)*(-1)
-                # fail_count = fail_mask.sum()
                 correct_failed_adv = out.eq(target.unsqueeze(1).data)
                 failed_only = correct_failed_adv[idx]
+                for i in range(0,len(idx)):
+                    if idx[i] == 1:
+                        if correct_failed_adv[i] == 0:
+                            idx[i] = 0
                 resample_adv[j].extend(failed_only.cpu().numpy().tolist())
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\

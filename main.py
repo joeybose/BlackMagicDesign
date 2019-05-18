@@ -182,7 +182,6 @@ def main(args):
         if args.run_baseline:
             attacks.whitebox_pgd(args, unk_model)
 
-        ipdb.set_trace()
         pred, delta = white_attack_func(args, train_loader,\
                 test_loader, unk_model, G, nc, h, w)
 
