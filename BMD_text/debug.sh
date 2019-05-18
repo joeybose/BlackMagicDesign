@@ -4,7 +4,7 @@
 
 # Only 1 iteration, only 1 batch
 #python -m pudb main.py \
-python main.py \
+python -m pudb main.py \
     --white \
     --no_pgd_optim \
     --hidden_init \
@@ -19,6 +19,7 @@ python main.py \
     --diff_nn \
     --temp_decay_schedule 1 \
     --resample_test
+    #--load_model \
 
     #--load_model \
 
