@@ -478,8 +478,7 @@ class ConvGenerator(nn.Module):
         self.use_flows = use_flow
         self.log_det_j = 0.
 
-        if deterministic:
-            self.deterministic = deterministic
+        self.deterministic = deterministic
 
         # Flow parameters
         if self.use_flows:

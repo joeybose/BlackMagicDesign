@@ -258,18 +258,17 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
         adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
         pred = model(adv_inputs.detach())
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-        correct_adv_tensor = out.eq(target.unsqueeze(1).data)
+        corr_adv_tensor = out.eq(target.unsqueeze(1).data)
         correct_test += out.eq(target.unsqueeze(1).data).sum()
 
 	# Resample failed examples
         if mode == 'Test' and args.resample_test:
-            ipdb.set_trace()
             re_x = x.detach()
             for j in range(args.resample_iterations):
                 delta, kl_div = G(re_x)
                 adv_inputs = re_x + delta.detach()
-		adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
-		pred = model(adv_inputs.detach())
+                adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
+                pred = model(adv_inputs.detach())
                 out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
 
                 # From previous correct adv tensor,get indices for correctly pred
@@ -305,20 +304,19 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
         plot_image_to_comet(args,delta_image,file_base+"delta.png",normalize=True)
 
 	# Log resampling stuff
-	if mode =='Test' and args.resample_test:
-	    cumulative = 0
-	    size_test = len(resample_adv[0])
-	    for j in range(len(resample_adv)):
-		fooled = len(resample_adv[j]) - sum(resample_adv[j])
-		percent_fooled = fooled / len(resample_adv[j])
-		cumulative += fooled
-		cum_per_fooled = cumulative / size_test
-		results += '| {:0.2f} |'.format(percent_fooled)
-		if args.comet:
-		    args.experiment.log_metric("Resampling perc fooled",
-							percent_fooled,step=j)
-		    args.experiment.log_metric("Resampling perc cumulative fooled",
-							cum_per_fooled,step=j)
+        if mode =='Test' and args.resample_test:
+            cumulative = 0
+            size_test = len(resample_adv[0])
+            for j in range(len(resample_adv)):
+                fooled = len(resample_adv[j]) - sum(resample_adv[j])
+                percent_fooled = fooled / len(resample_adv[j])
+                cumulative += fooled
+                cum_per_fooled = cumulative / size_test
+                print("Resampling perc fooled %f at step %d" % (percent_fooled,j))
+                print("Resampling perc cumulative fooled %f at step %d" % (cum_per_fooled,j))
+                if args.comet:
+                    args.experiment.log_metric("Resampling perc fooled",percent_fooled,step=j)
+                    args.experiment.log_metric("Resampling perc cumulative fooled",cum_per_fooled,step=j)
 
 def carlini_wagner_loss(args, output, target, scale_const=1):
     # compute the probability of the label class versus the maximum other
@@ -407,7 +405,6 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
         correct = 0
         if epoch == (args.attack_epochs - 1):
             mode = "Test"
-        ipdb.set_trace()
         L2_test_model(args,epoch,test_loader,model,G,nc,h,w,mode=mode)
         for batch_idx, (data, target) in train_itr:
             x, target = data.to(args.device), target.to(args.device)
