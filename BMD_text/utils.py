@@ -301,6 +301,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
     # Empty list to hold resampling results. Since we loop batches, results
     # accumulate in appropriate list index, where index is the sampling number
     resample_adv_tok = [[] for i in range(args.resample_iterations)]
+    re_tok_changed = [[] for i in range(args.resample_iterations)]
     G.eval()
     model.eval()
     # with torch.no_grad():
@@ -381,6 +382,17 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
                 failed_only = correct_failed_adv_tok[idx]
                 resample_adv_tok[j].extend(failed_only.cpu().numpy().tolist())
 
+                # For successful attacks, how different are the tokens?
+                idx_succesful = correct_failed_adv_tok < 1
+                succ_re_x = re_x[idx_succesful]
+                succ_adv_x = adv_x[idx_succesful]
+                changed = 1 - (succ_re_x.eq(succ_adv_x))
+                # tokens changed per sample
+                changed = torch.sum(changed, dim=1)
+                changed = changed.type(adv_embeddings.dtype) / x.shape[1]
+                changed = changed.cpu().numpy().tolist()
+                re_tok_changed[j].extend(changed)
+
                 # Batch is reduced to failed attacks
                 re_x = re_x[idx]
                 re_input_embeddings = re_input_embeddings[idx]
@@ -441,7 +453,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
 
     # Log resampling stuff
     if mode == 'Test' and args.resample_test:
-        results += 'Resampling perc size/fooled rate/cumulative fooled rate\n'
+        results += 'Resampling perc tok_changed/size/fooled rate/cumulative fooled rate\n'
         cumulative = 0
         re_it_size = size_test # resampling iteration size
         for j in range(len(resample_adv_tok)):
@@ -452,8 +464,12 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
             cumulative += fooled
             cum_per_fooled = cumulative / size_test
             per_resampled = sum(resample_adv_tok[j]) / size_test
-            results += '| {:0.2f}/{:0.2f}/{:0.2f}'.format(per_resampled, percent_fooled, cum_per_fooled)
+            perc_tok_changed = sum(re_tok_changed[j]) / len(re_tok_changed[j])
+            results += '| {:0.2f}/{:0.2f}/{:0.2f}'.format(perc_tok_changed,
+                                per_resampled, percent_fooled, cum_per_fooled)
             if args.comet:
+                args.experiment.log_metric("Resampling average tok changed",
+                                                    percent_fooled,step=j)
                 args.experiment.log_metric("Resampling perc size",
                                                     percent_fooled,step=j)
                 args.experiment.log_metric("Resampling perc fooled",
