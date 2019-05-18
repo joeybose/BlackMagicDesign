@@ -194,7 +194,7 @@ if __name__ == '__main__':
                         help='just test model and print accuracy')
     padd('--resample_test', default=False, action='store_true',
                         help='Load model and test resampling capability')
-    padd('--resample_iterations', type=int, default=5, metavar='N',
+    padd('--resample_iterations', type=int, default=100, metavar='N',
                         help='How many times to resample (default: 100)')
     padd('--clip_grad', default=True, action='store_true',
                         help='Clip grad norm')
