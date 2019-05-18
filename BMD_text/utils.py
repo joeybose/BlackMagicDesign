@@ -314,7 +314,7 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
         x = batch['text'].to(args.device)
         y = batch['labels'].to(args.device)
         if args.nearest_neigh_all == False:
-            last_idx = 3
+            last_idx = 16
         else:
             last_idx = len(x)
         x, y = x[:last_idx], y[:last_idx]
@@ -356,12 +356,13 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
             re_x = x.detach()
             re_input_embeddings = input_embeddings.detach()
             re_y = y.detach()
+            re_mask = mask.detach()
             for j in range(args.resample_iterations):
                 if len(re_x) == 0:
                     break
                 delta_embeddings, kl_div = G(re_x)
                 adv_embeddings = re_input_embeddings + delta_embeddings.detach()
-                adv_x = nearest(adv_embeddings, mask)
+                adv_x = nearest(adv_embeddings, re_mask)
                 adv_x = adv_x.type(re_x.dtype) # data type match
                 # adv_tok_preds = model(adv_x).squeeze(1)
                 adv_tok_preds = model(adv_x)
@@ -384,11 +385,15 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
                 re_x = re_x[idx]
                 re_input_embeddings = re_input_embeddings[idx]
                 re_y = re_y[idx]
+                re_mask = re_mask[idx]
 
         # For debugging, only do one iteration
         if args.nearest_neigh_all == False:
             break
 
+
+    # Test set size
+    size_test = len(correct_orig)
 
     accuracies = {
             "acc unperturbed" : sum(correct_orig)/len(correct_orig),
@@ -399,23 +404,22 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
 
     # Add resampled data
     if args.resample_test:
-        accuracies["resampled examples"] = len(resample_adv_tok)
-        if len(resample_adv_tok) == 0:
+        accuracies["resampled examples"] = len(resample_adv_tok[0])
+        if len(resample_adv_tok[0]) == 0:
             accuracies["acc on resampled"] = "NaN"
         else:
-            accuracies["acc on resampled"] = sum(resample_adv_tok[0])/len(\
-                                                            resample_adv_tok[0])
+            accuracies["acc on resampled"] = sum(resample_adv_tok[0])/size_test
 
     if args.comet:
         if mode == 'Train':
-            args.experiment.log_metric("Train acc unperturbed",sum(correct_orig)/len(correct_orig),step=epoch)
+            args.experiment.log_metric("Train acc unperturbed",sum(correct_orig)/size_test,step=epoch)
             args.experiment.log_metric("Train acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
             args.experiment.log_metric("Train acc adv tok",\
                     sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
             args.experiment.log_metric("Train perc tok changed",\
                     sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
         else:
-            args.experiment.log_metric("Test acc unperturbed",sum(correct_orig)/len(correct_orig),step=epoch)
+            args.experiment.log_metric("Test acc unperturbed",sum(correct_orig)/size_test,step=epoch)
             args.experiment.log_metric("Test acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
             args.experiment.log_metric("Test acc adv tok",\
                     sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
@@ -431,28 +435,32 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
     results += '**Result on full' + mode + ' set**\n'
     time_diff = (t2-t1).total_seconds()/60.0
     results += 'Time to evaluate: {:.2f} minutes\n'.format(time_diff)
-    results += 'Test set size: {}\n'.format(len(correct_orig))
+    results += 'Test set size: {}\n'.format(size_test)
     for k, v in accuracies.items():
         results += '{:s} : {:0.2f}\n'.format(k,v)
 
     # Log resampling stuff
     if mode == 'Test' and args.resample_test:
-        results += 'Resampling perc fooled\n'
+        results += 'Resampling perc size/fooled rate/cumulative fooled rate\n'
         cumulative = 0
-        size_test = len(resample_adv_tok[0])
+        re_it_size = size_test # resampling iteration size
         for j in range(len(resample_adv_tok)):
-            if len(resample_adv_tok[j]) == 0:
+            if re_it_size == 0:
                 break
-            fooled = len(resample_adv_tok[j]) - sum(resample_adv_tok[j])
-            percent_fooled = fooled / len(resample_adv_tok[j])
+            fooled = re_it_size - sum(resample_adv_tok[j])
+            percent_fooled = fooled / re_it_size
             cumulative += fooled
             cum_per_fooled = cumulative / size_test
-            results += '| {:0.2f} '.format(percent_fooled)
+            per_resampled = sum(resample_adv_tok[j]) / size_test
+            results += '| {:0.2f}/{:0.2f}/{:0.2f}'.format(per_resampled, percent_fooled, cum_per_fooled)
             if args.comet:
+                args.experiment.log_metric("Resampling perc size",
+                                                    percent_fooled,step=j)
                 args.experiment.log_metric("Resampling perc fooled",
                                                     percent_fooled,step=j)
                 args.experiment.log_metric("Resampling perc cumulative fooled",
                                                     cum_per_fooled,step=j)
+            re_it_size = len(resample_adv_tok[j]) # must update at end of loop
         results += '\n'
 
     results += '**Result on single ' + mode + ' set example**\n'

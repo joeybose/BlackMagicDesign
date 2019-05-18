@@ -7,7 +7,6 @@ import argparse
 from types import MethodType
 import ipdb
 from PIL import Image
-from comet_ml import Experiment
 import matplotlib.pyplot as plt
 import torch
 from torch import nn, optim
@@ -100,6 +99,7 @@ def main(args):
                 # msg = "You need to pass --load_model to"
                 # msg += " load a model in order to resample"
                 # sys.exit(msg)
+            print("Starting resampling")
             utils.evaluate_neighbours(test_loader, unk_model, G, args, 0)
             sys.exit(0)
 
@@ -342,11 +342,13 @@ if __name__ == '__main__':
 
     # Comet logging
     args.device = torch.device("cuda" if use_cuda else "cpu")
-    if args.comet:
+    if args.comet and not args.offline_comet:
+        from comet_ml import Experiment
         experiment = Experiment(api_key=args.comet_apikey,
                 project_name="black-magic-design",
                 workspace=args.comet_username)
-    if args.offline_comet:
+    elif args.offline_comet:
+        from comet_ml import Experiment
         offline_path = "temp/offline_comet"
         if not os.path.exists(offline_path):
             os.makedirs(offline_path)
@@ -355,6 +357,7 @@ if __name__ == '__main__':
                 project_name="black-magic-design",
                 workspace=args.comet_username,
                 offline_directory=offline_path)
+
     # To upload offline comet, run: comet-upload file.zip
     if args.comet or args.offline_comet:
         experiment.set_name(args.namestr)

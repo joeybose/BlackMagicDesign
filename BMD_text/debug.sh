@@ -3,8 +3,8 @@
 # Will save adversarial samples to "temp/adv_samples.txt"
 
 # Only 1 iteration, only 1 batch
-#python -m pudb main.py \
-python main.py \
+#python main.py \
+python -m pudb main.py \
     --white \
     --no_pgd_optim \
     --hidden_init \
