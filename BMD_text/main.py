@@ -96,10 +96,10 @@ def main(args):
 
         # Test resampling capability
         if args.resample_test:
-            if not args.load_model:
-                msg = "You need to pass --load_model to"
-                msg += " load a model in order to resample"
-                sys.exit(msg)
+            # if not args.load_model:
+                # msg = "You need to pass --load_model to"
+                # msg += " load a model in order to resample"
+                # sys.exit(msg)
             utils.evaluate_neighbours(test_loader, unk_model, G, args, 0)
             sys.exit(0)
 
@@ -189,7 +189,7 @@ if __name__ == '__main__':
                         help='just test model and print accuracy')
     padd('--resample_test', default=False, action='store_true',
                         help='Load model and test resampling capability')
-    padd('--resample_iterations', type=int, default=100, metavar='N',
+    padd('--resample_iterations', type=int, default=5, metavar='N',
                         help='How many times to resample (default: 100)')
     padd('--clip_grad', default=True, action='store_true',
                         help='Clip grad norm')

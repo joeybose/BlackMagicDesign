@@ -354,23 +354,36 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
         # Resample failed token examples
         if args.resample_test:
             re_x = x.detach()
+            re_input_embeddings = input_embeddings.detach()
+            re_y = y.detach()
             for j in range(args.resample_iterations):
+                if len(re_x) == 0:
+                    break
                 delta_embeddings, kl_div = G(re_x)
-                adv_embeddings = input_embeddings + delta_embeddings.detach()
+                adv_embeddings = re_input_embeddings + delta_embeddings.detach()
                 adv_x = nearest(adv_embeddings, mask)
-                adv_x = adv_x.type(x.dtype) # data type match
-                adv_tok_preds = model(adv_x).squeeze(1)
+                adv_x = adv_x.type(re_x.dtype) # data type match
+                # adv_tok_preds = model(adv_x).squeeze(1)
+                adv_tok_preds = model(adv_x)
+                if len(re_x) == 1:
+                    # expand so softmax works when one sample
+                    adv_tok_preds = adv_tok_preds.unsqueeze(1)
                 prob_adv_tok, adv_tok_idx = torch.max(\
                                                 F.softmax(adv_tok_preds,dim=1), 1)
 
+                correct_failed_adv_tok = adv_tok_idx.eq(re_y)
                 # From previous correct adv tensor,get indices for correctly pred
                 # Since we care about those on which attack failed
-                idx = corr_adv_tensor > 0
+                idx = correct_failed_adv_tok > 0
                 # fail_mask = (corr_adv_tensor-1)*(-1)
                 # fail_count = fail_mask.sum()
-                correct_failed_adv_tok = adv_tok_idx.eq(y)
                 failed_only = correct_failed_adv_tok[idx]
                 resample_adv_tok[j].extend(failed_only.cpu().numpy().tolist())
+
+                # Batch is reduced to failed attacks
+                re_x = re_x[idx]
+                re_input_embeddings = re_input_embeddings[idx]
+                re_y = re_y[idx]
 
         # For debugging, only do one iteration
         if args.nearest_neigh_all == False:
@@ -428,11 +441,13 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
         cumulative = 0
         size_test = len(resample_adv_tok[0])
         for j in range(len(resample_adv_tok)):
+            if len(resample_adv_tok[j]) == 0:
+                break
             fooled = len(resample_adv_tok[j]) - sum(resample_adv_tok[j])
             percent_fooled = fooled / len(resample_adv_tok[j])
             cumulative += fooled
             cum_per_fooled = cumulative / size_test
-            results += '| {:0.2f} |'.format(percent_fooled)
+            results += '| {:0.2f} '.format(percent_fooled)
             if args.comet:
                 args.experiment.log_metric("Resampling perc fooled",
                                                     percent_fooled,step=j)
