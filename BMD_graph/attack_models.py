@@ -97,8 +97,10 @@ class InnerProductDecoder(nn.Module):
         return adj
 
 class GCNModelVAE(nn.Module):
-    def __init__(self, attack_adj, n_nodes, input_feat_dim, hidden_dim1, hidden_dim2, dropout):
+    def __init__(self, attack_adj, n_nodes, input_feat_dim,
+                 hidden_dim1,hidden_dim2, dropout, deterministic=False):
         super(GCNModelVAE, self).__init__()
+        self.deterministic = deterministic
         self.n_nodes = n_nodes
         self.gc1 = GraphConvolution(input_feat_dim, hidden_dim1, dropout, act=F.relu)
         self.gc2 = GraphConvolution(hidden_dim1, hidden_dim2, dropout, act=lambda x: x)
@@ -115,16 +117,23 @@ class GCNModelVAE(nn.Module):
 
     def reparameterize(self, mu, logvar):
         if self.training:
-            std = torch.exp(logvar)
-            eps = torch.randn_like(std)
-            return eps.mul(std).add_(mu)
+            if self.deterministic:
+                z = mu + logvar.mul(0.5).exp_()
+                return z
+            else:
+                std = torch.exp(logvar)
+                eps = torch.randn_like(std)
+                return eps.mul(std).add_(mu)
         else:
             return mu
 
     def forward(self, x, adj):
         mu, logvar = self.encode(x, adj)
         z = self.reparameterize(mu, logvar)
-        KLD = -0.5 / self.n_nodes * torch.mean(torch.sum(1 + 2 * logvar - mu.pow(2) - logvar.exp().pow(2), 1))
+        if self.deterministic:
+            KLD = torch.Tensor([0.]).cuda()
+        else:
+            KLD = -0.5 / self.n_nodes * torch.mean(torch.sum(1 + 2 * logvar - mu.pow(2) - logvar.exp().pow(2), 1))
         decoded = self.dc(z)
         return decoded, KLD
 

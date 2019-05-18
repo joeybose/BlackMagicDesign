@@ -47,7 +47,9 @@ def main(args):
         else:
             white_attack_func = graph_attacks.PGD_white_box_generator
 
-        G = GCNModelVAE(args.attack_adj,n_nodes,args.in_feats,args.n_hidden,args.n_hidden,args.dropout)
+        G = GCNModelVAE(args.attack_adj,n_nodes,args.in_feats,\
+                        args.n_hidden,args.n_hidden,args.dropout,\
+                        deterministic=args.deterministic_G)
         G = G.cuda()
         # Attack !!!
         white_attack_func(args, features, labels, train_mask, \
@@ -138,6 +140,12 @@ if __name__ == '__main__':
                         help='Attack on a single node like Zuegner et. al')
     parser.add_argument('--no_pgd_optim', default=False, action='store_true',
                         help='Use Lagrangian objective instead of PGD')
+    parser.add_argument('--deterministic_G', default=False, action='store_true',
+                        help='Deterministic Latent State')
+    parser.add_argument('--resample_test', default=False, action='store_true',
+			    help='Load model and test resampling capability')
+    parser.add_argument('--resample_iterations', type=int, default=100, metavar='N',
+                        help='How many times to resample (default: 100)')
     # Bells
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')

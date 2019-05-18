@@ -65,10 +65,11 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
 
 def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,\
-                  data,model,G,target_mask=None,attack_mask=None,return_correct=False):
+                  data,model,G,target_mask=None,attack_mask=None,return_correct=False,mode="NotTest"):
 
     ''' Testing Phase '''
     correct_test = 0
+    resample_adv = [[] for i in range(args.resample_iterations)]
     if args.attack_adj:
         x = adj_mat
     else:
@@ -88,15 +89,73 @@ def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,\
         pred = logits[test_mask]
         masked_labels = labels[test_mask]
     _, indices = torch.max(pred, dim=1)
+    corr_adv_tensor = (indices.data.cpu() == masked_labels)
     correct_test = torch.sum(indices.data.cpu() == masked_labels)
+    idx = corr_adv_tensor > 0
 
-    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
-            .format(correct_test, len(masked_labels),\
-                100. * correct_test / len(masked_labels)))
+    if mode == 'Test' or mode == 'Single' and args.resample_test:
+        for j in range(args.resample_iterations):
+            with torch.no_grad():
+                delta, kl_div  = G(features,adj_mat)
+                if args.influencer_attack:
+                    delta = delta*attack_mask
+
+            adv_inputs = features.detach() + delta
+            logits = model(adv_inputs)
+            if args.influencer_attack:
+                pred = logits[target_mask]
+                masked_labels = labels[target_mask]
+            else:
+                pred = logits[test_mask]
+                masked_labels = labels[test_mask]
+            _, indices = torch.max(pred, dim=1)
+
+            # From previous correct adv tensor,get indices for correctly pred
+            # Since we care about those on which attack failed
+            correct_failed_adv = (indices.data.cpu() == masked_labels)
+            failed_only = correct_failed_adv[idx]
+            for i in range(0,len(idx)):
+                if idx[i] == 1:
+                    if correct_failed_adv[i] == 0:
+                        idx[i] = 0
+            resample_adv[j].extend(failed_only.cpu().numpy().tolist())
+
+    if mode != 'Single':
+        print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
+                .format(correct_test, len(masked_labels),\
+                    100. * correct_test / len(masked_labels)))
+    if mode =='Test' or mode == 'Single' and args.resample_test:
+        cumulative = 0
+        size_test = len(resample_adv[0])
+        if size_test > 0:
+            for j in range(len(resample_adv)):
+                fooled = len(resample_adv[j]) - sum(resample_adv[j])
+                if len(resample_adv[j]) == 0:
+                    percent_fooled = 0
+                else:
+                    percent_fooled = fooled / len(resample_adv[j])
+                cumulative += fooled
+                cum_per_fooled = cumulative / size_test
+                if mode != 'Single':
+                    print("Resampling perc fooled %f at step %d" % (percent_fooled,j))
+                    print("Resampling perc cumulative fooled %f at step %d" % (cum_per_fooled,j))
     if args.comet:
         args.experiment.log_metric("Test Adv Accuracy",\
                 100.*correct_test/len(masked_labels),step=epoch)
+	# Log resampling stuff
+        if mode =='Test' and args.resample_test:
+            args.experiment.log_metric("Resampling perc fooled",percent_fooled,step=j)
+            args.experiment.log_metric("Resampling perc cumulative fooled",cum_per_fooled,step=j)
     if return_correct:
+        if mode == 'Single' and args.resample_test:
+            if size_test > 0:
+                length = len(resample_adv[-1])
+                if length == 0:
+                    correct_test = 0
+                else:
+                    correct_test = resample_adv[-1][0]
+            else:
+                correct_test = 0
         return correct_test
 
 def carlini_wagner_loss(args, output, target, scale_const=1):
@@ -242,6 +301,7 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
     g.ndata['norm'] = norm.unsqueeze(1)
     adj_mat = g.adjacency_matrix().cuda()
     features = features.cuda()
+    mode = "Train"
 
     if args.attack_adj:
         x = adj_mat
@@ -305,7 +365,9 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
                 .format(epoch,\
                     loss, loss_perturb, kl_div, correct, len(masked_labels),
                     100. * correct / len(masked_labels)))
-        L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G,target_mask,attack_mask)
+        if epoch == (args.attack_epochs - 1):
+            mode = "Test"
+        L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G,target_mask,attack_mask,mode=mode)
 
     if args.single_node_attack and args.influencer_attack:
         single_target_ids, single_attack_ids = create_single_node_masks(g,labels,correct_indices.squeeze().cpu().numpy(),\
@@ -317,9 +379,20 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
             single_attack_mask = single_attack_mask.unsqueeze(1).float()
             single_attack_mask = single_attack_mask.repeat(1,features.shape[1]).cuda()
             single_correct_test += L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,\
-                          G,single_target_mask,single_attack_mask,return_correct=True)
+                          G,single_target_mask,single_attack_mask,return_correct=True,mode='Train')
         single_acc = single_correct_test.data.cpu().numpy() / len(single_target_ids)
         print("Single Accuracy is %f " %(single_acc))
+        re_single_correct_test = 0
+        if args.resample_test:
+            for target_node, attacker_nodes in zip(single_target_ids,single_attack_ids):
+                single_target_mask = torch.ByteTensor(sample_mask(target_node,labels.shape[0])).cuda()
+                single_attack_mask = torch.ByteTensor(sample_mask(attacker_nodes, labels.shape[0]))
+                single_attack_mask = single_attack_mask.unsqueeze(1).float()
+                single_attack_mask = single_attack_mask.repeat(1,features.shape[1]).cuda()
+                re_single_correct_test += L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,\
+                              G,single_target_mask,single_attack_mask,return_correct=True,mode='Single')
+            single_acc = re_single_correct_test / len(single_target_ids)
+            print("Resampled Single Accuracy is %f " %(single_acc))
 
 def soft_reward(pred, targ):
     """
