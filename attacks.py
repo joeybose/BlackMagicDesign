@@ -239,11 +239,14 @@ def PGD_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,adv_image,"Adv.png",normalize=True)
         plot_image_to_comet(args,delta_image,"delta.png",normalize=True)
 
-def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
+def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
     ''' Testing Phase '''
     test_itr = tqdm(enumerate(test_loader),\
             total=len(test_loader.dataset)/args.batch_size)
     correct_test = 0
+    # Empty list to hold resampling results. Since we loop batches, results
+    # accumulate in appropriate list index, where index is the sampling number
+    resample_adv = [[] for i in range(args.resample_iterations)]
     for batch_idx, (data, target) in test_itr:
         x, target = data.to(args.device), target.to(args.device)
         if not args.vanilla_G:
@@ -255,11 +258,33 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
         pred = model(adv_inputs.detach())
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+        correct_adv_tensor = out.eq(target.unsqueeze(1).data)
         correct_test += out.eq(target.unsqueeze(1).data).sum()
+
+	# Resample failed examples
+        if mode == 'Test' and args.resample_test:
+            ipdb.set_trace()
+            re_x = x.detach()
+            for j in range(args.resample_iterations):
+                delta, kl_div = G(re_x)
+                adv_inputs = re_x + delta.detach()
+		adv_inputs = torch.clamp(adv_inputs, -1.0, 1.0)
+		pred = model(adv_inputs.detach())
+                out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+
+                # From previous correct adv tensor,get indices for correctly pred
+                # Since we care about those on which attack failed
+                idx = corr_adv_tensor > 0
+                # fail_mask = (corr_adv_tensor-1)*(-1)
+                # fail_count = fail_mask.sum()
+                correct_failed_adv = out.eq(target.unsqueeze(1).data)
+                failed_only = correct_failed_adv[idx]
+                resample_adv[j].extend(failed_only.cpu().numpy().tolist())
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'\
             .format(correct_test, len(test_loader.dataset),\
                 100. * correct_test.cpu().numpy() / len(test_loader.dataset)))
+
     if args.comet:
         test_acc = 100. * correct_test / len(test_loader.dataset)
         args.experiment.log_metric("Test Adv Accuracy",test_acc,step=epoch)
@@ -278,6 +303,22 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28):
         plot_image_to_comet(args,clean_image,file_base+"clean.png",normalize=True)
         plot_image_to_comet(args,adv_image,file_base+"Adv.png",normalize=True)
         plot_image_to_comet(args,delta_image,file_base+"delta.png",normalize=True)
+
+	# Log resampling stuff
+	if mode =='Test' and args.resample_test:
+	    cumulative = 0
+	    size_test = len(resample_adv[0])
+	    for j in range(len(resample_adv)):
+		fooled = len(resample_adv[j]) - sum(resample_adv[j])
+		percent_fooled = fooled / len(resample_adv[j])
+		cumulative += fooled
+		cum_per_fooled = cumulative / size_test
+		results += '| {:0.2f} |'.format(percent_fooled)
+		if args.comet:
+		    args.experiment.log_metric("Resampling perc fooled",
+							percent_fooled,step=j)
+		    args.experiment.log_metric("Resampling perc cumulative fooled",
+							cum_per_fooled,step=j)
 
 def carlini_wagner_loss(args, output, target, scale_const=1):
     # compute the probability of the label class versus the maximum other
@@ -353,6 +394,7 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
         nc=1,h=28,w=28):
     epsilon = args.epsilon
     opt = optim.Adam(G.parameters())
+    mode = "Train"
     if args.carlini_loss:
         misclassify_loss_func = carlini_wagner_loss
     else:
@@ -363,7 +405,10 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G,\
         train_itr = tqdm(enumerate(train_loader),\
                 total=len(train_loader.dataset)/args.batch_size)
         correct = 0
-        L2_test_model(args,epoch,test_loader,model,G,nc,h,w)
+        if epoch == (args.attack_epochs - 1):
+            mode = "Test"
+        ipdb.set_trace()
+        L2_test_model(args,epoch,test_loader,model,G,nc,h,w,mode=mode)
         for batch_idx, (data, target) in train_itr:
             x, target = data.to(args.device), target.to(args.device)
             num_unperturbed = 10

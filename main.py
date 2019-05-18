@@ -283,6 +283,10 @@ if __name__ == '__main__':
                         help='Deterministic Latent State')
     parser.add_argument('--single_data', default=False, action='store_true',
                         help='Test on a single data')
+    parser.add_argument('--resample_test', default=False, action='store_true',
+			    help='Load model and test resampling capability')
+    parset.add_argument('--resample_iterations', type=int, default=100, metavar='N',
+                        help='How many times to resample (default: 100)')
     # Bells
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
