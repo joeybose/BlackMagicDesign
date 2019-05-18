@@ -21,24 +21,33 @@ import argparse
 from tqdm import tqdm
 from utils import *
 import ipdb
-from advertorch.attacks import LinfPGDAttack
+from advertorch.attacks import LinfPGDAttack, L2PGDAttack
 
-def whitebox_pgd(args, image, target, model, normalize=None):
-    adversary = LinfPGDAttack(
+def whitebox_pgd(args, model):
+    adversary = L2PGDAttack(
 	model, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.3,
 	nb_iter=40, eps_iter=0.01, rand_init=True, clip_min=0.0, clip_max=1.0,
 	targeted=False)
-    adv_image = adversary.perturb(image, target)
-    print("Target is %d" %(target))
-    pred = model(adv_image)
-    out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
-    print("Adv Target is %d" %(out))
-    clean_image = (image)[0].detach()
-    adv_image = adv_image[0].detach()
-    if args.comet:
-        plot_image_to_comet(args,clean_image,"clean.png")
-        plot_image_to_comet(args,adv_image,"Adv.png")
-    return pred, clamp(clean_image - adv_image,0.,1.)
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+	transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    ])
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                    download=True, transform=transform_train)
+    train_loader = torch.utils.data.DataLoader(trainset,batch_size=1,
+                                              shuffle=True, num_workers=8)
+    train_itr = tqdm(enumerate(train_loader),total=len(train_loader.dataset))
+    correct = 0
+    for batch_idx, (data, target) in train_itr:
+        x, target = data.to(args.device), target.to(args.device)
+        adv_image = adversary.perturb(x, target)
+        pred = model(adv_image)
+        out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
+        correct += out.eq(target.unsqueeze(1).data)
+    acc = 100. * correct.cpu().numpy() / len(train_loader.dataset)
+    print("PGD attack succes rate %f" %(acc))
 
 def white_box_untargeted(args, image, target, model, enc=None, dec=None, \
         vae=None, ae= None, normalize=None):

@@ -132,10 +132,7 @@ def main(args):
         args.input_size = 150528
 
     # Load data
-    if args.single_data:
-        data,target = utils.get_single_data(args)
-    else:
-        train_loader,test_loader = utils.get_data(args)
+    train_loader,test_loader = utils.get_data(args)
 
 
     # The unknown model to attack
@@ -182,18 +179,14 @@ def main(args):
                 G = nn.DataParallel(G)
             nc,h,w = 3,32,32
 
-        # Test on a single data point or entire dataset
-        if args.single_data:
-            # pred, delta = attacks.single_white_box_generator(args, data, target, unk_model, G)
-            # pred, delta = attacks.white_box_untargeted(args, data, target, unk_model)
-            pred, delta = attacks.whitebox_pgd(args, data, target, unk_model,\
-                    nc, h, w)
-        else:
-            pred, delta = white_attack_func(args, train_loader,\
-                    test_loader, unk_model, G, nc, h, w)
+        if args.run_baseline:
+            attacks.whitebox_pgd(args, unk_model)
+
+        ipdb.set_trace()
+        pred, delta = white_attack_func(args, train_loader,\
+                test_loader, unk_model, G, nc, h, w)
 
     # Blackbox Attack model
-    ipdb.set_trace()
     model = models.GaussianPolicy(args.input_size, 400,
         args.latent_size,decode=False).to(args.device)
 
@@ -201,9 +194,9 @@ def main(args):
     cv = to_cuda(models.FC(args.input_size, args.classes))
 
     # Launch training
-    if args.single_data:
-        pred, delta = attacks.single_blackbox_attack(args, 'lax', data, target, unk_model, model, cv)
-        pred, delta = attacks.single_blackbox_attack(args, 'reinforce', data, target, unk_model, model, cv)
+    # if args.single_data:
+        # pred, delta = attacks.single_blackbox_attack(args, 'lax', data, target, unk_model, model, cv)
+        # pred, delta = attacks.single_blackbox_attack(args, 'reinforce', data, target, unk_model, model, cv)
 
 if __name__ == '__main__':
     """
@@ -281,8 +274,8 @@ if __name__ == '__main__':
                         help='Vanilla G White Box')
     parser.add_argument('--deterministic_G', default=False, action='store_true',
                         help='Deterministic Latent State')
-    parser.add_argument('--single_data', default=False, action='store_true',
-                        help='Test on a single data')
+    parser.add_argument('--run_baseline', default=False, action='store_true',
+                        help='Run baseline PGD')
     parser.add_argument('--resample_test', default=False, action='store_true',
 			    help='Load model and test resampling capability')
     parser.add_argument('--resample_iterations', type=int, default=100, metavar='N',
