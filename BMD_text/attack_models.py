@@ -222,7 +222,7 @@ class Seq2SeqCAE(nn.Module):
 
 class Seq2Seq(nn.Module):
     def __init__(self, glove_weights, train_emb,emsize, nhidden, ntokens, nlayers, noise_radius=0.2,
-                 hidden_init=True, dropout=0, gpu=True):
+                 hidden_init=True, dropout=0, deterministic=False,gpu=True):
         super(Seq2Seq, self).__init__()
         self.nhidden = nhidden
         self.emsize = emsize
@@ -233,6 +233,7 @@ class Seq2Seq(nn.Module):
         self.dropout = dropout
         self.gpu = gpu
         self.log_det_j = 0.
+        self.deterministic=deterministic # true:auto-encoder, false:VAE
 
         self.start_symbols = to_gpu(gpu, Variable(torch.ones(10, 1).long()))
 
@@ -256,7 +257,7 @@ class Seq2Seq(nn.Module):
                                dropout=dropout,
                                batch_first=True)
 
-        # Initialize Linear Transformation
+        # Initial Linear Transformation
         self.linear = nn.Linear(nhidden, ntokens)
         self.linear_emb = nn.Linear(nhidden, emsize)
 
@@ -380,10 +381,17 @@ class Seq2Seq(nn.Module):
         hidden = torch.div(hidden, norms.expand_as(hidden))
         mu = self.linear_1(hidden)
         logvar = self.linear_2(hidden)
-        hidden = self.reparameterize(mu,logvar)
-        kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        kl_div = kl_div - self.log_det_j
-        kl_div = kl_div / indices.size(0)  # mean over batch
+
+        # If deterministic, just standard autoencoder
+        if self.deterministic:
+            hidden = mu + logvar
+            kl_div = torch.zeros_like(mu)
+            kl_div = torch.sum(kl_div) #just dummy placeholder
+        else:
+            hidden = self.reparameterize(mu,logvar)
+            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            kl_div = kl_div - self.log_det_j
+            kl_div = kl_div / indices.size(0)  # mean over batch
 
         # if noise and self.noise_radius > 0:
             # normal = Normal(torch.zeros(hidden.size()),self.noise_radius*torch.ones(hidden.size()))

@@ -18,8 +18,10 @@ python -m pudb main.py \
     --prepared_data='dataloader/16_prepared_data.pickle' \
     --diff_nn \
     --temp_decay_schedule 1 \
-    --resample_test
+    --no_parallel \
+    --deterministic_G
 
+    #--resample_test
     #--load_model \
 
 # Do 20 internal iterations or until samples are fooled

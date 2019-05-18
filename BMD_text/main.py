@@ -72,7 +72,8 @@ def main(args):
                               nlayers=args.nlayers,
                               noise_radius=args.noise_radius,
                               hidden_init=args.hidden_init,
-                              dropout=args.dropout)
+                              dropout=args.dropout,
+                              deterministic=args.deterministic_G)
 
     # Efficient compute
     G = G.to(args.device)
@@ -155,6 +156,7 @@ if __name__ == '__main__':
     padd('--flow_type', default='planar', const='soft',
                     nargs='?', choices=['planar', 'radial'],
                     help='Type of Normalizing Flow (default: %(default)s)')
+
     # Training
     padd('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
@@ -192,6 +194,8 @@ if __name__ == '__main__':
                         help='Test Batch size. 256 requires 12GB GPU memory')
     padd('--test', default=False, action='store_true',
                         help='just test model and print accuracy')
+    padd('--deterministic_G', default=False, action='store_true',
+                        help='Auto-encoder, no VAE')
     padd('--resample_test', default=False, action='store_true',
                         help='Load model and test resampling capability')
     padd('--resample_iterations', type=int, default=100, metavar='N',
