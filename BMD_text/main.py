@@ -4,6 +4,11 @@ from __future__ import print_function
 import json, os, sys
 import datetime
 import argparse
+# Comet will timeout if no internet
+try:
+    from comet_ml import Experiment
+except Exception as e:
+    from comet_ml import OfflineExperiment
 from types import MethodType
 import ipdb
 from PIL import Image
@@ -343,12 +348,10 @@ if __name__ == '__main__':
     # Comet logging
     args.device = torch.device("cuda" if use_cuda else "cpu")
     if args.comet and not args.offline_comet:
-        from comet_ml import Experiment
         experiment = Experiment(api_key=args.comet_apikey,
                 project_name="black-magic-design",
                 workspace=args.comet_username)
     elif args.offline_comet:
-        from comet_ml import Experiment
         offline_path = "temp/offline_comet"
         if not os.path.exists(offline_path):
             os.makedirs(offline_path)
