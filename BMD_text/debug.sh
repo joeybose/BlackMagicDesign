@@ -9,19 +9,21 @@ python -m pudb main.py \
     --no_pgd_optim \
     --hidden_init \
     --batch_size=16  \
-    --namestr="carlini_Text" \
     --LAMBDA=0.01 \
     --carlini_loss \
     --max_iter 1 \
-    --max_batches 1 \
+    --max_batches=100 \
     --save_adv_samples \
     --prepared_data='dataloader/16_prepared_data.pickle' \
+    --load_model \
+    --adv_model_path='saved_models/adv_model_lambda005_2gpus.pt' \
+    --namestr="resample testing" \
+    --resample_iterations=5 \
     --diff_nn \
-    --temp_decay_schedule 1 \
-    --no_parallel \
-    --deterministic_G
+    --resample_test
 
-    #--resample_test
+    #--temp_decay_schedule 5 \
+    #--no_parallel \
     #--load_model \
 
 # Do 20 internal iterations or until samples are fooled

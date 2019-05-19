@@ -455,17 +455,19 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
     if mode == 'Test' and args.resample_test:
         results += 'Resampling perc tok_changed/size/fooled rate/cumulative fooled rate\n'
         cumulative = 0
-        re_it_size = size_test # resampling iteration size
-        for j in range(len(resample_adv_tok)):
+        first_re_size = len(resample_adv_tok[0])
+        re_it_size = first_re_size # resampling iteration size
+        # Skip the first which is the non-resampled
+        for j in range(1, len(resample_adv_tok)):
             if re_it_size == 0:
                 break
             fooled = re_it_size - sum(resample_adv_tok[j])
             percent_fooled = fooled / re_it_size
             cumulative += fooled
-            cum_per_fooled = cumulative / size_test
-            per_resampled = sum(resample_adv_tok[j]) / size_test
+            cum_per_fooled = cumulative / first_re_size
+            per_resampled = sum(resample_adv_tok[j]) / first_re_size
             perc_tok_changed = sum(re_tok_changed[j]) / len(re_tok_changed[j])
-            results += '| {:0.2f}/{:0.2f}/{:0.2f}'.format(perc_tok_changed,
+            results += '| {:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(perc_tok_changed,
                                 per_resampled, percent_fooled, cum_per_fooled)
             if args.comet:
                 args.experiment.log_metric("Resampling average tok changed",
