@@ -423,6 +423,12 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
             ''' Get input embeddings from Model '''
             x_embeddings = model.get_embeds(x)
 
+            # Update temp
+            if args.diff_nn:
+                # Differentiable nearest neighbour embeddings
+                if batch_idx % args.temp_decay_schedule == 0 and batch_idx>0:
+                    temp=max(temp*args.temp_decay_rate, 0.01)
+
             while loss_misclassify > 0 and loss_perturb > 1:
                 opt.zero_grad()
                 input_embeddings = x_embeddings.detach()
@@ -442,8 +448,6 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     adv_embeddings = input_embeddings + delta_embeddings
                     if args.diff_nn:
                         # Differentiable nearest neighbour embeddings
-                        if batch_idx % args.temp_decay_schedule == 0:
-                            temp=max(temp*args.temp_decay_rate, 0.01)
                         adv_embeddings = diff_nearest_func(adv_embeddings,
                                                     batch_token=x, temp=temp)
 
