@@ -352,6 +352,17 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
         opt.zero_grad()
         loss.backward()
         opt.step()
+        # Validation step
+        with torch.no_grad():
+            pred_val = logits[train_mask]
+            masked_labels_val = labels[train_mask]
+            _, indices_val = torch.max(pred_val, dim=1)
+            correct_val = torch.sum(indices_val.data.cpu() == masked_labels_val)
+            val_loss_misclassify = misclassify_loss_func(args,pred_val,\
+                                                         masked_labels_val.cuda()) / len(masked_labels_val)
+        print('\nVal: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
+                .format(epoch,val_loss_misclassify, correct_val,\
+                        len(masked_labels_val),100. * correct_val / len(masked_labels_val)))
 
         if args.comet:
             args.experiment.log_metric("Whitebox Total loss",loss,step=epoch)
@@ -360,12 +371,16 @@ def L2_white_box_generator(args, features, labels, train_mask, val_mask, test_ma
                     loss_misclassify,step=epoch)
             args.experiment.log_metric("Adv Accuracy",\
                     100.*correct/len(masked_labels),step=epoch)
+            args.experiment.log_metric("Val Whitebox Misclassification loss",\
+                    val_loss_misclassify,step=epoch)
+            args.experiment.log_metric("Val Adv Accuracy",\
+                    100.*correct_val/len(masked_labels_val),step=epoch)
 
         print('\nTrain: Epoch:{} Total Loss: {:.4f}, Delta: {:.4f}, KL: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
                 .format(epoch,\
                     loss, loss_perturb, kl_div, correct, len(masked_labels),
                     100. * correct / len(masked_labels)))
-        if epoch == (args.attack_epochs - 1):
+        if epoch == (args.attack_epochs - 1) and args.resample_test:
             mode = "Test"
         L2_test_model(args,epoch,features,labels,adj_mat,test_mask,data,model,G,target_mask,attack_mask,mode=mode)
 

@@ -26,7 +26,7 @@ from advertorch.attacks import LinfPGDAttack, L2PGDAttack
 def whitebox_pgd(args, model):
     adversary = L2PGDAttack(
 	model, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.3,
-	nb_iter=40, eps_iter=0.01, rand_init=True, clip_min=0.0, clip_max=1.0,
+	nb_iter=40, eps_iter=0.01, rand_init=True, clip_min=-1.0, clip_max=1.0,
 	targeted=False)
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
@@ -269,6 +269,7 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
         out = pred.max(1, keepdim=True)[1] # get the index of the max log-probability
         corr_adv_tensor = out.eq(target.unsqueeze(1).data)
         correct_test += out.eq(target.unsqueeze(1).data).sum()
+        idx = corr_adv_tensor > 0
 
 	# Resample failed examples
         if mode == 'Test' and args.resample_test:
@@ -284,7 +285,6 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
 
                 # From previous correct adv tensor,get indices for correctly pred
                 # Since we care about those on which attack failed
-                idx = corr_adv_tensor > 0
                 correct_failed_adv = out.eq(target.unsqueeze(1).data)
                 failed_only = correct_failed_adv[idx]
                 for i in range(0,len(idx)):
@@ -322,7 +322,10 @@ def L2_test_model(args,epoch,test_loader,model,G,nc=1,h=28,w=28,mode="NotTest"):
             size_test = len(resample_adv[0])
             for j in range(len(resample_adv)):
                 fooled = len(resample_adv[j]) - sum(resample_adv[j])
-                percent_fooled = fooled / len(resample_adv[j])
+                if len(resample_adv[j]) == 0:
+                    percent_fooled = 0
+                else:
+                    percent_fooled = fooled / len(resample_adv[j])
                 cumulative += fooled
                 cum_per_fooled = cumulative / size_test
                 print("Resampling perc fooled %f at step %d" % (percent_fooled,j))
