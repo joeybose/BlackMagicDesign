@@ -34,7 +34,7 @@ def main(args):
     if args.single_data:
         data,target = utils.get_single_data(args)
     else:
-        train_loader,test_loader = utils.get_data(args, args.prepared_data)
+        train_loader,test_loader,dev_loader = utils.get_data(args, args.prepared_data)
 
     # The unknown model to attack, specified in args.model
     unk_model = utils.load_unk_model(args,train_loader,test_loader)
@@ -116,7 +116,7 @@ def main(args):
             text_attacks.whitebox_pgd(args, data, target, unk_model)
         else:
             white_attack_func(args, train_loader,\
-                    test_loader, unk_model, G)
+                    test_loader, dev_loader, unk_model, G)
 
     # # Blackbox Attack model
     # model = models.GaussianPolicy(args.input_size, 400,

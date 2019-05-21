@@ -423,20 +423,12 @@ def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode=
             accuracies["acc on resampled"] = sum(resample_adv_tok[0])/size_test
 
     if args.comet:
-        if mode == 'Train':
-            args.experiment.log_metric("Train acc unperturbed",sum(correct_orig)/size_test,step=epoch)
-            args.experiment.log_metric("Train acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
-            args.experiment.log_metric("Train acc adv tok",\
-                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
-            args.experiment.log_metric("Train perc tok changed",\
-                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
-        else:
-            args.experiment.log_metric("Test acc unperturbed",sum(correct_orig)/size_test,step=epoch)
-            args.experiment.log_metric("Test acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
-            args.experiment.log_metric("Test acc adv tok",\
-                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
-            args.experiment.log_metric("Test perc tok changed",\
-                    sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+        args.experiment.log_metric(mode+" acc unperturbed",sum(correct_orig)/size_test,step=epoch)
+        args.experiment.log_metric(mode+" acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
+        args.experiment.log_metric(mode+" acc adv tok",\
+                sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+        args.experiment.log_metric(mode+" perc tok changed",\
+                sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
 
     t2 = datetime.now()
     # Save results to string, so easy to print and write to file
@@ -595,22 +587,36 @@ def get_data(args, prepared_data):
             args.alphabet = d["wordset"]
             train_iter = d["train_iter"]
             test_iter = d["test_iter"]
-        return train_iter, test_iter
+            dev_iter = d["test_iter"]
+        return train_iter, test_iter, dev_iter
+
+    # Check if dev set exists
+    dev_dir = os.path.join(data_path,'aclImdb', 'dev')
+    if not os.path.exists(dev_dir):
+        print("It doesn't seem like a dev set exists, creating one")
+        dataHelper.dev_train_split()
 
     train_data, test_data = read_imdb(data_path), read_imdb(data_path, 'test')
-    vocab = get_vocab_imdb(train_data)
+    dev_data = read_imdb(data_path, 'dev')
+    combined = train_data
+    combined.extend(dev_data)
+    vocab = get_vocab_imdb(combined)
     print('vocab_size:', len(vocab))
     args.vocab_size = len(vocab)
     args.label_size = 2
     MAX_LEN = args.max_seq_len
     train_data, train_labels = preprocess_imdb(train_data, vocab, MAX_LEN)
     test_data, test_labels = preprocess_imdb(test_data, vocab, MAX_LEN)
+    dev_data, dev_labels = preprocess_imdb(dev_data, vocab, MAX_LEN)
     trainset = IMDBDataset(train_data,train_labels)
     testset = IMDBDataset(test_data,test_labels)
+    devset = IMDBDataset(dev_data,test_labels)
     train_iter = DataLoader(trainset, batch_size=args.batch_size,
 			    shuffle=True, num_workers=4)
     test_iter = DataLoader(testset, batch_size=args.test_batch_size,
-			    shuffle=True, num_workers=4)
+			    shuffle=False, num_workers=4)
+    dev_iter = DataLoader(devset, batch_size=args.test_batch_size,
+			    shuffle=False, num_workers=4)
 
     glove_file = os.path.join( ".vector_cache","glove.6B.300d.txt")
     wordset = vocab._token_to_idx
@@ -633,11 +639,12 @@ def get_data(args, prepared_data):
         d["wordset"] = wordset
         d["train_iter"] = train_iter
         d["test_iter"] = test_iter
+        d["dev_iter"] = dev_iter
         pickle.dump(d, p, protocol=pickle.HIGHEST_PROTOCOL)
         print("Saved prepared data for future fast load to: {}".format(\
                                                                 prepared_data))
 
-    return train_iter, test_iter
+    return train_iter, test_iter, dev_iter
 
 def log_time_delta(func):
     @wraps(func)

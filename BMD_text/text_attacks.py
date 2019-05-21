@@ -362,7 +362,7 @@ def white_box_resampler_test(args, test_loader, unk_model, G):
     """
     pass
 
-def L2_white_box_generator(args, train_loader, test_loader, model, G):
+def L2_white_box_generator(args, train_loader,test_loader,dev_loader,model, G):
     """
     Args:
         args         : ArgumentParser args
@@ -387,6 +387,9 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
 
     # Start temperature
     temp = args.nn_temp
+
+    # Starting best dev accuracy (lower is better)
+    best_dev = 100.0
 
     if args.diff_nn:
         # Differentiable nearest neigh auxiliary loss
@@ -507,8 +510,11 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
         # Get examples of nearest neighbour text and scores
         neig_eg, train_accuracies = utils.evaluate_neighbours(train_loader,
                                                         model, G, args, epoch, mode='Train')
+        neig_eg, dev_accuracies = utils.evaluate_neighbours(dev_loader,
+                                                        model, G, args, epoch, mode='Validation')
         neig_eg, test_accuracies = utils.evaluate_neighbours(test_loader,
-                                                        model, G, args, epoch)
+                                                        model, G, args, epoch, mode='Test')
+
         if args.comet:
             if args.diff_nn:
                 args.experiment.log_metric("Diff nearest neigh temp",
@@ -522,8 +528,13 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     100.*correct/len(train_loader.dataset),step=epoch)
 
             # Log orig accuracy, perturbed emb acc and perturbed tok acc
+            for k, v in dev_accuracies.items():
+                args.experiment.log_metric("Validation "+k, v,step=epoch)
+
+            # Log orig accuracy, perturbed emb acc and perturbed tok acc
             for k, v in test_accuracies.items():
-                args.experiment.log_metric(k, v,step=epoch)
+                args.experiment.log_metric("Testing "+k, v,step=epoch)
+
         print("Misclassification Loss: %f Perturb Loss %f" %(\
                                                 loss_misclassify,loss_perturb))
         print('\nTrain: Epoch:{} Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'\
@@ -531,9 +542,11 @@ def L2_white_box_generator(args, train_loader, test_loader, model, G):
                     loss, correct, len(train_loader.dataset),
                     100. * correct / len(train_loader.dataset)))
         # Checkpoint
-        if args.save_model:
-            with open(args.adv_model_path, 'wb') as f:
-                torch.save(G, f)
+        if dev_accuracies["acc adv tok"] < best_dev:
+            best_dev = dev_accuracies["acc adv tok"]
+            if args.save_model:
+                with open(args.adv_model_path, 'wb') as f:
+                    torch.save(G, f)
 
 
 def soft_reward(pred, targ):

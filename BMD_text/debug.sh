@@ -14,7 +14,7 @@ python -m pudb main.py \
     --max_iter 1 \
     --max_batches=100 \
     --save_adv_samples \
-    --prepared_data='dataloader/16_prepared_data.pickle' \
+    --prepared_data='dataloader/new_16_prepared_data.pickle' \
     --load_model \
     --adv_model_path='saved_models/adv_model_lambda005_2gpus.pt' \
     --namestr="resample testing" \

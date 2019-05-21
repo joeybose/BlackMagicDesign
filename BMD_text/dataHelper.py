@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import shutil
 import ipdb
 import numpy as np
 import string
@@ -44,6 +45,31 @@ class IMDBDataset(Dataset):
             sample = self.transform(sample)
 
         return sample
+
+def dev_train_split(data_path=data_path, perc=0.20):
+    '''
+    Randomly select `perc` of training set, and save as validation set.
+    '''
+    moved = 0
+    train_dir = os.path.join(data_path,'aclImdb', 'train')
+    dev_dir = os.path.join(data_path,'aclImdb', 'dev')
+    # Lists of neg and pos file paths
+    for label in ['pos', 'neg']:
+        dir_from = os.path.join(data_path,'aclImdb', 'train', label)
+        files = os.listdir(dir_from)
+        random.shuffle(files)
+        num = int(len(files)*perc)
+        data = files[:num]
+        dir_to = os.path.join(data_path,'aclImdb', 'dev', label)
+        if not os.path.exists(dir_to):
+            os.makedirs(dir_to)
+        # Move
+        for f in data:
+            file_from = os.path.join(dir_from, f)
+            file_to = os.path.join(dir_to, f)
+            shutil.move(file_from, file_to)
+            moved += 1
+    print("Moved {} files from {} to {}".format(moved, train_dir, dev_dir))
 
 def read_imdb(data_path=data_path, mode='train'):
     '''
@@ -387,10 +413,6 @@ def loadDataWithoutEmbedding(opt):
         df["text"]= df["text"].str.lower()
         datas.append((df["text"],df["label"]))
     return datas
-
-
-
-
 
 if __name__ =="__main__":
     import opts
