@@ -139,13 +139,17 @@ def L2_test_model(args,epoch,features,labels,adj_mat,test_mask,\
                 if mode != 'Single':
                     print("Resampling perc fooled %f at step %d" % (percent_fooled,j))
                     print("Resampling perc cumulative fooled %f at step %d" % (cum_per_fooled,j))
+
+                if args.comet and mode=='Single':
+                    args.experiment.log_metric("Single Resampling perc fooled",percent_fooled,step=j)
+                    args.experiment.log_metric("Single Resampling perc cumulative fooled",cum_per_fooled,step=j)
+                elif args.comet and mode != 'Single':
+                    args.experiment.log_metric("Resampling perc fooled",percent_fooled,step=j)
+                    args.experiment.log_metric("Resampling perc cumulative fooled",cum_per_fooled,step=j)
     if args.comet:
         args.experiment.log_metric("Test Adv Accuracy",\
                 100.*correct_test/len(masked_labels),step=epoch)
-	# Log resampling stuff
-        if mode =='Test' and args.resample_test:
-            args.experiment.log_metric("Resampling perc fooled",percent_fooled,step=j)
-            args.experiment.log_metric("Resampling perc cumulative fooled",cum_per_fooled,step=j)
+
     if return_correct:
         if mode == 'Single' and args.resample_test:
             if size_test > 0:
