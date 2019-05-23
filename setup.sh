@@ -1,24 +1,27 @@
 #!/bin/bash
 root_dir=$(pwd)
 
-# Install advertorch
+echo "Install advertorch\n"
 git clone https://github.com/BorealisAI/advertorch
 cd advertorch
 python setup.py install
 cd ..
 rm -rf advertorch
 
-# Install glove
+echo "Installing python packages\n"
+pip install -r requirements.txt
+
+echo "Installing glove\n"
 cd $root_dir
 cd setup_scripts/
 bash download_glove.sh
 
-## Install data
+echo "Installing data\n"
 cd $root_dir
 cd setup_scripts/
 bash download_data.sh
 
-## Download pretrained LSTM
+echo "Downloading pretrained LSTM\n"
 cd $root_dir
 cd setup_scripts/
 bash download_lstm.sh
