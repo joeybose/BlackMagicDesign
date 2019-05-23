@@ -38,7 +38,37 @@ python main.py --white --no_pgd_optim --hidden_init --batch_size=128  --namestr=
 
 ## Reproducibility
 ### Text experiments
-To train the adversarial model
+The following scripts will reproduce the results in Table 4: Adversarial success rates on IMDB
+
+Train DAG-autoencoder:
+```
+cd BMD_text/runs/
+bash autoencoder.sh
+```
+
+Train DAG-autoencoder with differentiable nearest neighbour:
+```
+cd BMD_text/runs/
+bash autoencoder_diff.sh
+```
+
+Train DAG-VAE:
+```
+cd BMD_text/runs/
+bash dag_attack.sh
+```
+
+Train DAG-VAE with differentiable nearest neighbour:
+```
+cd BMD_text/runs/
+bash dag_attack_diff.sh
+```
+
+Test resampling generalization on DAG-VAE-diff:
+```
+cd BMD_text/runs/
+bash resample.sh
+```
 
 
 ## Contributing
