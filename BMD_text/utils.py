@@ -1,23 +1,238 @@
 # -*- coding: utf-8 -*-
-import torch
+from __future__ import absolute_import
+from __future__ import print_function
+
+import collections
+from datetime import datetime
+import pickle
 import dataHelper
+import torch
+from torch import nn
 import torch.nn.functional as F
+import collections
+import sklearn
 from torchtext import data
 from torchtext import datasets
 from torchtext.vocab import Vectors, GloVe, CharNGram, FastText
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from functools import wraps
+import torch.optim as optim
 import time
 import sys
 import logging
 import os
 import models
 import ipdb
+from dataHelper import*
+from tools.nearest import NearestNeighbours
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+UNKNOWN_IDX = 0
+
+class Vocabulary(object):
+    """Indexing for text tokens.
+
+
+    Build indices for the unknown token, reserved tokens, and input counter keys. Indexed tokens can
+    be used by token embeddings.
+
+
+    Parameters
+    ----------
+    counter : collections.Counter or None, default None
+        Counts text token frequencies in the text data. Its keys will be indexed according to
+        frequency thresholds such as `most_freq_count` and `min_freq`. Keys of `counter`,
+        `unknown_token`, and values of `reserved_tokens` must be of the same hashable type.
+        Examples: str, int, and tuple.
+    most_freq_count : None or int, default None
+        The maximum possible number of the most frequent tokens in the keys of `counter` that can be
+        indexed. Note that this argument does not count any token from `reserved_tokens`. Suppose
+        that there are different keys of `counter` whose frequency are the same, if indexing all of
+        them will exceed this argument value, such keys will be indexed one by one according to
+        their __cmp__() order until the frequency threshold is met. If this argument is None or
+        larger than its largest possible value restricted by `counter` and `reserved_tokens`, this
+        argument has no effect.
+    min_freq : int, default 1
+        The minimum frequency required for a token in the keys of `counter` to be indexed.
+    unknown_token : hashable object, default '&lt;unk&gt;'
+        The representation for any unknown token. In other words, any unknown token will be indexed
+        as the same representation. Keys of `counter`, `unknown_token`, and values of
+        `reserved_tokens` must be of the same hashable type. Examples: str, int, and tuple.
+    reserved_tokens : list of hashable objects or None, default None
+        A list of reserved tokens that will always be indexed, such as special symbols representing
+        padding, beginning of sentence, and end of sentence. It cannot contain `unknown_token`, or
+        duplicate reserved tokens. Keys of `counter`, `unknown_token`, and values of
+        `reserved_tokens` must be of the same hashable type. Examples: str, int, and tuple.
+
+
+    Attributes
+    ----------
+    unknown_token : hashable object
+        The representation for any unknown token. In other words, any unknown token will be indexed
+        as the same representation.
+    reserved_tokens : list of strs or None
+        A list of reserved tokens that will always be indexed.
+    """
+
+    def __init__(self, counter=None, most_freq_count=None, min_freq=1, unknown_token='',
+                 reserved_tokens=None):
+
+        # Sanity checks.
+        assert min_freq > 0, '`min_freq` must be set to a positive value.'
+
+        if reserved_tokens is not None:
+            reserved_token_set = set(reserved_tokens)
+            assert unknown_token not in reserved_token_set, \
+                '`reserved_token` cannot contain `unknown_token`.'
+            assert len(reserved_token_set) == len(reserved_tokens), \
+                '`reserved_tokens` cannot contain duplicate reserved tokens.'
+
+        self._index_unknown_and_reserved_tokens(unknown_token, reserved_tokens)
+
+        if counter is not None:
+            self._index_counter_keys(counter, unknown_token, reserved_tokens, most_freq_count,
+                                     min_freq)
+
+    def _index_unknown_and_reserved_tokens(self, unknown_token, reserved_tokens):
+        """Indexes unknown and reserved tokens."""
+
+        self._unknown_token = unknown_token
+        # Thus, constants.UNKNOWN_IDX must be 0.
+        self._idx_to_token = [unknown_token]
+
+        if reserved_tokens is None:
+            self._reserved_tokens = None
+        else:
+            self._reserved_tokens = reserved_tokens[:]
+            self._idx_to_token.extend(reserved_tokens)
+
+        self._token_to_idx = {token: idx for idx, token in enumerate(self._idx_to_token)}
+
+    def _index_counter_keys(self, counter, unknown_token, reserved_tokens, most_freq_count,
+                            min_freq):
+        """Indexes keys of `counter`.
+
+
+        Indexes keys of `counter` according to frequency thresholds such as `most_freq_count` and
+        `min_freq`.
+        """
+
+        assert isinstance(counter, collections.Counter), \
+            '`counter` must be an instance of collections.Counter.'
+
+        unknown_and_reserved_tokens = set(reserved_tokens) if reserved_tokens is not None else set()
+        unknown_and_reserved_tokens.add(unknown_token)
+
+        token_freqs = sorted(counter.items(), key=lambda x: x[0])
+        token_freqs.sort(key=lambda x: x[1], reverse=True)
+
+        token_cap = len(unknown_and_reserved_tokens) + (
+            len(counter) if most_freq_count is None else most_freq_count)
+
+        for token, freq in token_freqs:
+            if freq < min_freq or len(self._idx_to_token) == token_cap:
+                break
+            if token not in unknown_and_reserved_tokens:
+                self._idx_to_token.append(token)
+                self._token_to_idx[token] = len(self._idx_to_token) - 1
+
+    def __len__(self):
+        return len(self.idx_to_token)
+
+    @property
+    def token_to_idx(self):
+        """
+        dict mapping str to int: A dict mapping each token to its index integer.
+        """
+        return self._token_to_idx
+
+    @property
+    def idx_to_token(self):
+        """
+        list of strs:  A list of indexed tokens where the list indices and the token indices are aligned.
+        """
+        return self._idx_to_token
+
+    @property
+    def unknown_token(self):
+        return self._unknown_token
+
+    @property
+    def reserved_tokens(self):
+        return self._reserved_tokens
+
+    def to_indices(self, tokens):
+        """Converts tokens to indices according to the vocabulary.
+
+
+        Parameters
+        ----------
+        tokens : str or list of strs
+            A source token or tokens to be converted.
+
+
+        Returns
+        -------
+        int or list of ints
+            A token index or a list of token indices according to the vocabulary.
+        """
+
+        to_reduce = False
+        if not isinstance(tokens, list):
+            tokens = [tokens]
+            to_reduce = True
+
+        indices = [self.token_to_idx[token] if token in self.token_to_idx
+                   else UNKNOWN_IDX for token in tokens]
+
+        return indices[0] if to_reduce else indices
+
+
+    def to_tokens(self, indices):
+        """Converts token indices to tokens according to the vocabulary.
+
+
+        Parameters
+        ----------
+        indices : int or list of ints
+            A source token index or token indices to be converted.
+
+
+        Returns
+        -------
+        str or list of strs
+            A token or a list of tokens according to the vocabulary.
+        """
+
+        to_reduce = False
+        if not isinstance(indices, list):
+            indices = [indices]
+            to_reduce = True
+
+        max_idx = len(self.idx_to_token) - 1
+
+        tokens = []
+        for idx in indices:
+            if not isinstance(idx, int) or idx > max_idx:
+                raise ValueError('Token index %d in the provided `indices` is invalid.' % idx)
+            else:
+                tokens.append(self.idx_to_token[idx])
+
+        return tokens[0] if to_reduce else tokens
 
 def to_gpu(gpu, var):
     if gpu:
         return var.cuda()
     return var
+
+def reduce_sum(x, keepdim=True):
+    for a in reversed(range(1, x.dim())):
+        x = x.sum(a, keepdim=keepdim)
+    return x.squeeze().sum()
+
+def L2_dist(x, y):
+    return reduce_sum((x - y)**2)
 
 def decode_to_natural_lang(sequence,args):
     sentence_list = []
@@ -28,15 +243,301 @@ def decode_to_natural_lang(sequence,args):
     print(sentence)
     return sentence
 
-def load_unk_model(args):
+def train_unk_model(args,model,train_itr,test_itr):
+    model.train()
+    epoch_loss = 0
+    epoch_acc = 0
+    optimizer = torch.optim.Adam(model.parameters(),weight_decay=1e-4)
+    for j in range(5):
+        for i, batch in enumerate(iterator):
+            x, y = batch['text'].cuda(), batch['labels'].cuda()
+            optimizer.zero_grad()
+            predictions = model(x).squeeze(1)
+            loss = F.cross_entropy(predictions,y)
+            prob, idx = torch.max(F.log_softmax(predictions,dim=1), 1)
+            correct = idx.eq(y)
+            acc = correct.sum().float() /len(correct)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+        print('Train loss: ',epoch_loss / len(iterator),'Train accuracy: ' ,epoch_acc / len(iterator))
+    fn = 'saved_models/'+args.model+args.namestr+'.pt'
+    torch.save(model.state_dict(), fn)
+    return model
+
+def evaluate(model, iterator):
+    epoch_loss = 0
+    epoch_acc = 0
+    with torch.no_grad():
+        for i, batch in enumerate(iterator):
+            x, y = batch['text'].cuda(), batch['labels'].cuda()
+            predictions = model(x).squeeze(1)
+            loss = F.cross_entropy(predictions,y)
+            prob, idx = torch.max(F.log_softmax(predictions,dim=1), 1)
+            correct = idx.eq(y)
+            acc = correct.sum().float()
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+        print('No Adv Evaluation loss: ',epoch_loss / len(iterator.dataset),'Eval accuracy: ' ,epoch_acc / len(iterator.dataset))
+
+def evaluate_neighbours(iterator, model, G, args, epoch, num_samples=None, mode='Test'):
+    """
+    Args:
+        iterator: (dataloader iterator) to iterate batches
+        model: target model
+        G: adversarial model
+        num_samples: (int) samples evaluated, if None, all samples evaluated
+    """
+    # Get target model predictions with:
+    # - original input
+    # - perturbed embeddings
+    # - nearest neighbour tokens from perturbed embeddings
+    t1 = datetime.now()
+    correct_orig = []
+    correct_adv_emb = []
+    correct_adv_tok = []
+    tokens_changed_perc = []
+    # Empty list to hold resampling results. Since we loop batches, results
+    # accumulate in appropriate list index, where index is the sampling number
+    resample_adv_tok = [[] for i in range(args.resample_iterations)]
+    re_tok_changed = [[] for i in range(args.resample_iterations)]
+    G.eval()
+    model.eval()
+    # with torch.no_grad():
+
+    # Nearest neigh function
+    nearest = NearestNeighbours(model.embedding.weight.detach().cpu(), args.device, args.distance_func)
+    if str(args.device) == 'cuda' and not args.no_parallel:
+        nearest = nn.DataParallel(nearest)
+
+    for i, batch in enumerate(iterator):
+        x = batch['text'].to(args.device)
+        y = batch['labels'].to(args.device)
+        if args.nearest_neigh_all == False:
+            last_idx = 16
+        else:
+            last_idx = len(x)
+        x, y = x[:last_idx], y[:last_idx]
+        original_pred = model(x).squeeze(1)
+        prob_orig, orig_idx = torch.max(F.softmax(original_pred,dim=1), 1)
+        correct_orig.extend(orig_idx.eq(y).cpu().numpy().tolist())
+        original_tokens, mask = decode_to_token(x, args.inv_alph, args)
+
+        # Get input emb from target model
+        input_embeddings = model.get_embeds(x).detach()
+
+        # Attack model perturbation
+        # with torch.no_grad():
+        delta_embeddings, kl_div = G(x.detach())
+
+        # Adversarial embeddings: combine input and perturb
+        adv_embeddings = input_embeddings + delta_embeddings.detach()
+
+        # Target predictions with adversarial embeddings
+        adv_emb_preds = model(adv_embeddings,use_embed=True)
+        prob_adv_emb, adv_emb_idx = torch.max(F.softmax(adv_emb_preds,dim=1), 1)
+        correct_adv_emb.extend(adv_emb_idx.eq(y).cpu().numpy().tolist())
+
+        # Target predictions with adversarial tokens
+        adv_x = nearest(adv_embeddings, mask)
+
+        adv_x = adv_x.type(x.dtype) # data type match
+        adv_tok_preds = model(adv_x).squeeze(1)
+        prob_adv_tok, adv_tok_idx = torch.max(F.softmax(adv_tok_preds,dim=1), 1)
+        # Get boolean tensor indicating those correctly predicted
+        corr_adv_tensor = adv_tok_idx.eq(y)
+        correct_adv_tok.extend(corr_adv_tensor.cpu().numpy().tolist())
+        # Percent of changed tokens
+        changed = 1 - (x.eq(adv_x)).sum().cpu().numpy() / x.numel()
+        tokens_changed_perc.append(changed)
+
+        # Resample failed token examples
+        if args.resample_test:
+            re_x = x.detach()
+            re_input_embeddings = input_embeddings.detach()
+            re_y = y.detach()
+            re_mask = mask.detach()
+            for j in range(args.resample_iterations):
+                if len(re_x) == 0:
+                    break
+                delta_embeddings, kl_div = G(re_x)
+                adv_embeddings = re_input_embeddings + delta_embeddings.detach()
+                adv_x = nearest(adv_embeddings, re_mask)
+                adv_x = adv_x.type(re_x.dtype) # data type match
+                # adv_tok_preds = model(adv_x).squeeze(1)
+                adv_tok_preds = model(adv_x)
+                if len(re_x) == 1:
+                    # expand so softmax works when one sample
+                    adv_tok_preds = adv_tok_preds.unsqueeze(1)
+                prob_adv_tok, adv_tok_idx = torch.max(\
+                                                F.softmax(adv_tok_preds,dim=1), 1)
+
+                correct_failed_adv_tok = adv_tok_idx.eq(re_y)
+                # From previous correct adv tensor,get indices for correctly pred
+                # Since we care about those on which attack failed
+                idx = correct_failed_adv_tok > 0
+                # fail_mask = (corr_adv_tensor-1)*(-1)
+                # fail_count = fail_mask.sum()
+                failed_only = correct_failed_adv_tok[idx]
+                resample_adv_tok[j].extend(failed_only.cpu().numpy().tolist())
+
+                # For successful attacks, how different are the tokens?
+                idx_succesful = correct_failed_adv_tok < 1
+                succ_re_x = re_x[idx_succesful]
+                succ_adv_x = adv_x[idx_succesful]
+                changed = 1 - (succ_re_x.eq(succ_adv_x))
+                # tokens changed per sample
+                changed = torch.sum(changed, dim=1)
+                changed = changed.type(adv_embeddings.dtype) / x.shape[1]
+                changed = changed.cpu().numpy().tolist()
+                re_tok_changed[j].extend(changed)
+
+                # Batch is reduced to failed attacks
+                re_x = re_x[idx]
+                re_input_embeddings = re_input_embeddings[idx]
+                re_y = re_y[idx]
+                re_mask = re_mask[idx]
+
+        # For debugging, only do one iteration
+        if args.nearest_neigh_all == False:
+            break
+
+
+    # Test set size
+    size_test = len(correct_orig)
+
+    accuracies = {
+            "acc unperturbed" : sum(correct_orig)/len(correct_orig),
+            "acc adv emb": sum(correct_adv_emb)/len(correct_adv_emb),
+            "acc adv tok": sum(correct_adv_tok)/len(correct_adv_tok),
+            "perc tok changed": sum(tokens_changed_perc)/len(tokens_changed_perc)
+            }
+
+    # Add resampled data
+    if args.resample_test:
+        accuracies["resampled examples"] = len(resample_adv_tok[0])
+        if len(resample_adv_tok[0]) == 0:
+            accuracies["acc on resampled"] = "NaN"
+        else:
+            accuracies["acc on resampled"] = sum(resample_adv_tok[0])/size_test
+
+    if args.comet:
+        args.experiment.log_metric(mode+" acc unperturbed",sum(correct_orig)/size_test,step=epoch)
+        args.experiment.log_metric(mode+" acc adv emb",sum(correct_adv_emb)/len(correct_adv_emb),step=epoch)
+        args.experiment.log_metric(mode+" acc adv tok",\
+                sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+        args.experiment.log_metric(mode+" perc tok changed",\
+                sum(tokens_changed_perc)/len(tokens_changed_perc),step=epoch)
+
+    t2 = datetime.now()
+    # Save results to string, so easy to print and write to file
+    # TODO: add number of flipped tokens
+    results = '*'*80 + '\n'
+    results += 'Epoch: {}\n'.format(epoch)
+
+    results += '**Result on full' + mode + ' set**\n'
+    time_diff = (t2-t1).total_seconds()/60.0
+    results += 'Time to evaluate: {:.2f} minutes\n'.format(time_diff)
+    results += 'Test set size: {}\n'.format(size_test)
+    for k, v in accuracies.items():
+        results += '{:s} : {:0.2f}\n'.format(k,v)
+
+    # Log resampling stuff
+    if mode == 'Test' and args.resample_test:
+        results += 'Resampling perc tok_changed/size/fooled rate/cumulative fooled rate\n'
+        cumulative = 0
+        first_re_size = len(resample_adv_tok[0])
+        re_it_size = first_re_size # resampling iteration size
+        # Skip the first which is the non-resampled
+        for j in range(1, len(resample_adv_tok)):
+            if re_it_size == 0:
+                break
+            fooled = re_it_size - sum(resample_adv_tok[j])
+            percent_fooled = fooled / re_it_size
+            cumulative += fooled
+            cum_per_fooled = cumulative / first_re_size
+            per_resampled = sum(resample_adv_tok[j]) / first_re_size
+            perc_tok_changed = sum(re_tok_changed[j]) / len(re_tok_changed[j])
+            results += '| {:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(perc_tok_changed,
+                                per_resampled, percent_fooled, cum_per_fooled)
+            if args.comet:
+                args.experiment.log_metric("Resampling average tok changed",
+                                                    percent_fooled,step=j)
+                args.experiment.log_metric("Resampling perc size",
+                                                    percent_fooled,step=j)
+                args.experiment.log_metric("Resampling perc fooled",
+                                                    percent_fooled,step=j)
+                args.experiment.log_metric("Resampling perc cumulative fooled",
+                                                    cum_per_fooled,step=j)
+            re_it_size = len(resample_adv_tok[j]) # must update at end of loop
+        results += '\n'
+
+    results += '**Result on single ' + mode + ' set example**\n'
+    results += 'Pred. on original input: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
+                                                prob_orig[0], orig_idx[0], correct_orig[0])
+    results += 'Pred. on perturbed embed.: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
+                                        prob_adv_emb[0], adv_emb_idx[0], correct_adv_emb[0])
+    results += 'Pred. on nearest neighbour tokens: {:0.2f} for class {:d}, correct class? {:d}\n'.format(\
+                                        prob_adv_tok[0], adv_tok_idx[0], correct_adv_tok[0])
+    results += 'Original example with class {}:\n'.format(y[0])
+    original_tokens, mask = decode_to_token(x, args.inv_alph, args)
+    results += original_tokens[0] + '\n'
+
+    results += 'Adversarial example with predicted class {}:\n'.format(adv_tok_idx[0])
+    # Get nearest neighbour indices/tokens
+    nearest_tokens, _ = decode_to_token(adv_x, args.inv_alph, args,mask)
+    results += nearest_tokens[0] + '\n'
+    results += '*'*80 + '\n'
+    print(results)
+
+    # Append samples to file
+    if args.save_adv_samples:
+        with open(args.sample_file, 'a') as f:
+            f.write(results)
+        print("====Saved results to file===")
+    G.train()
+    model.train()
+    return results, accuracies
+
+def decode_to_token(x, idx_to_tok, args, mask=None):
+    """
+    Given a batch of embeddings, returns string tokens. Masked items will be
+    removed from output. If no mask is provided, it will be created on-the-fly
+    and returned.
+
+    Args:
+        x: (Tensor) size [batch, seq length, emb size]
+        idx_to_tok: (list) return the string token given index where the index
+                    matches to the embedding index
+        mask: (Tensor) same shape as `x`
+    """
+    # Create mask
+    if mask is None:
+        mask = torch.where(x > 0, torch.tensor([1.]).to(args.device),
+                                            torch.tensor([0.]).to(args.device))
+    x_tokens = []
+    # Loop sequences
+    for j in range(x.shape[0]):
+        seq_tokens = []
+        for i, word in enumerate(x[j]):
+            if float(mask[j,i]) > 0:
+                seq_tokens.append(idx_to_tok[int(x[j,i])])
+        sentence = ' '.join(seq_tokens[:])
+        x_tokens.append(sentence)
+    return x_tokens, mask
+
+def load_unk_model(args,train_itr,test_itr):
     """
     Load an unknown model. Used for convenience to easily swap unk model
     """
     args.lstm_layers=2
     model=models.setup(args)
-    model.load_state_dict(torch.load(args.model_path))
-    if torch.cuda.is_available():
-        model.cuda()
+    if not args.train_classifier:
+        model.load_state_dict(torch.load(args.model_path))
+    else:
+        model = train_unk_model(args,model,train_itr,test_itr)
+    model.to(device)
     # model.eval()
     return model
 
@@ -69,13 +570,81 @@ def get_cumulative_rewards(disc_logits, orig_targets, args, is_already_reward=Fa
 
     return cumulative_rewards
 
-def get_data(args):
-    # if from_torchtext:
-        # train_iter, test_iter = utils.loadData(opt)
-    # else:
-    import dataHelper as helper
-    train_iter, test_iter = dataHelper.loadData(args)
-    return train_iter, test_iter
+def get_data(args, prepared_data):
+    """
+    Prepare the data or load some already prepared data such as the embeddings
+    """
+
+    # If data already prepared in pickle, load and return
+    if os.path.isfile(prepared_data):
+        print("Found data pickle, loading from {}".format(prepared_data))
+        with open(prepared_data, 'rb') as p:
+            d = pickle.load(p)
+            args.vocab_size = d["vocab_size"]
+            args.label_size = d["label_size"]
+            args.embeddings = d["vectors"]
+            args.inv_alph = d["inv_alph"]
+            args.alphabet = d["wordset"]
+            train_iter = d["train_iter"]
+            test_iter = d["test_iter"]
+            dev_iter = d["test_iter"]
+        return train_iter, test_iter, dev_iter
+
+    # Check if dev set exists
+    dev_dir = os.path.join(data_path,'aclImdb', 'dev')
+    if not os.path.exists(dev_dir):
+        print("It doesn't seem like a dev set exists, creating one")
+        dataHelper.dev_train_split()
+
+    train_data, test_data = read_imdb(data_path), read_imdb(data_path, 'test')
+    dev_data = read_imdb(data_path, 'dev')
+    combined = train_data
+    combined.extend(dev_data)
+    vocab = get_vocab_imdb(combined)
+    print('vocab_size:', len(vocab))
+    args.vocab_size = len(vocab)
+    args.label_size = 2
+    MAX_LEN = args.max_seq_len
+    train_data, train_labels = preprocess_imdb(train_data, vocab, MAX_LEN)
+    test_data, test_labels = preprocess_imdb(test_data, vocab, MAX_LEN)
+    dev_data, dev_labels = preprocess_imdb(dev_data, vocab, MAX_LEN)
+    trainset = IMDBDataset(train_data,train_labels)
+    testset = IMDBDataset(test_data,test_labels)
+    devset = IMDBDataset(dev_data,test_labels)
+    train_iter = DataLoader(trainset, batch_size=args.batch_size,
+			    shuffle=True, num_workers=4)
+    test_iter = DataLoader(testset, batch_size=args.test_batch_size,
+			    shuffle=False, num_workers=4)
+    dev_iter = DataLoader(devset, batch_size=args.test_batch_size,
+			    shuffle=False, num_workers=4)
+
+    glove_file = os.path.join( ".vector_cache","glove.6B.300d.txt")
+    wordset = vocab._token_to_idx
+
+    loaded_vectors,embedding_size =\
+                            dataHelper.load_text_vec(wordset,glove_file)
+    vectors = dataHelper.vectors_lookup(loaded_vectors,wordset,300)
+
+    args.embeddings = vectors
+    args.inv_alph = vocab._idx_to_token
+    args.alphabet = wordset
+
+    # Save prepared data for future fast load
+    with open(prepared_data, 'wb') as p:
+        d = {}
+        d["vocab_size"] = args.vocab_size
+        d["label_size"] = args.label_size
+        d["vectors"] = args.embeddings
+        d["inv_alph"] = args.inv_alph
+        d["wordset"] = wordset
+        d["train_iter"] = train_iter
+        d["test_iter"] = test_iter
+        d["dev_iter"] = dev_iter
+        pickle.dump(d, p, protocol=pickle.HIGHEST_PROTOCOL)
+        print("Saved prepared data for future fast load to: {}".format(\
+                                                                prepared_data))
+
+    return train_iter, test_iter, dev_iter
 
 def log_time_delta(func):
     @wraps(func)
@@ -127,26 +696,6 @@ def loadData(opt):
     opt.embeddings = TEXT.vocab.vectors
 
     return train_iter, test_iter
-
-
-def evaluation(model,test_iter,from_torchtext=True):
-    model.eval()
-    accuracy=[]
-#    batch= next(iter(test_iter))
-    for index,batch in enumerate( test_iter):
-        text = batch.text[0] if from_torchtext else batch.text
-        predicted = model(text)
-        prob, idx = torch.max(predicted, 1)
-        percision=(idx== batch.label).float().mean()
-
-        if torch.cuda.is_available():
-            accuracy.append(percision.data.item() )
-        else:
-            accuracy.append(percision.data.numpy()[0] )
-    model.train()
-    return np.mean(accuracy)
-
-
 
 def getOptimizer(params,name="adam",lr=1,momentum=None,scheduler=None):
 

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import os
+import shutil
+import ipdb
 import numpy as np
 import string
 from collections import Counter
@@ -8,6 +10,10 @@ import pandas as pd
 from tqdm import tqdm
 import random
 import time
+from functools import wraps
+import collections
+import sklearn
+import utils
 # from utils import log_time_delta
 from tqdm import tqdm
 from dataloader import Dataset
@@ -18,6 +24,110 @@ try:
     import cPickle as pickle
 except ImportError:
     import pickle
+
+data_path = '.data/imdb/'
+class IMDBDataset(Dataset):
+    """IMDB dataset."""
+    def __init__(self, data, labels, transform=None):
+        self.data = data
+        self.labels = labels
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        x = self.data[idx]
+        label = self.labels[idx]
+        sample = {'text': x, 'labels': label}
+
+        if self.transform:
+            sample = self.transform(sample)
+
+        return sample
+
+def dev_train_split(data_path=data_path, perc=0.20):
+    '''
+    Randomly select `perc` of training set, and save as validation set.
+    '''
+    moved = 0
+    train_dir = os.path.join(data_path,'aclImdb', 'train')
+    dev_dir = os.path.join(data_path,'aclImdb', 'dev')
+    # Lists of neg and pos file paths
+    for label in ['pos', 'neg']:
+        dir_from = os.path.join(data_path,'aclImdb', 'train', label)
+        files = os.listdir(dir_from)
+        random.shuffle(files)
+        num = int(len(files)*perc)
+        data = files[:num]
+        dir_to = os.path.join(data_path,'aclImdb', 'dev', label)
+        if not os.path.exists(dir_to):
+            os.makedirs(dir_to)
+        # Move
+        for f in data:
+            file_from = os.path.join(dir_from, f)
+            file_to = os.path.join(dir_to, f)
+            shutil.move(file_from, file_to)
+            moved += 1
+    print("Moved {} files from {} to {}".format(moved, train_dir, dev_dir))
+
+def read_imdb(data_path=data_path, mode='train'):
+    '''
+    return: list of [review, label]
+    '''
+    data = []
+    for label in ['pos', 'neg']:
+        folder = os.path.join(data_path,'aclImdb', mode, label)
+        for file_name in os.listdir(folder):
+            with open(os.path.join(folder, file_name), 'rb') as f:
+                review = f.read().decode('utf-8').replace('\n', '').strip().lower()
+                data.append([review, 1 if label=='pos' else 0])
+    random.shuffle(data)
+    return data
+
+def tokenize_imdb(data):
+    '''
+    return: list of [w1, w2,...,]
+    '''
+    def tokenizer(text):
+        return [tok.lower() for tok in text.split(' ')]
+
+    return [tokenizer(review) for review, _ in data]
+
+def get_vocab_imdb(data):
+    '''
+    return: text.vocab.Vocabulary, each word appears at least 5 times.
+    '''
+    tokenized = tokenize_imdb(data)
+    counter = collections.Counter([tk for st in tokenized for tk in st])
+    return utils.Vocabulary(counter, min_freq=5)
+
+def preprocess_imdb(data, vocab, max_len):
+    '''
+    truncate or pad sentence to max_len
+    return: X: list of [list of word index]
+            y: list of label
+    '''
+    def pad(x):
+        return x[:max_len] if len(x)>max_len else x+[0]*(max_len-len(x))
+
+    tokenize = tokenize_imdb(data)
+    X = np.array([pad(vocab.to_indices(x)) for x in tokenize])
+    y = np.array([tag for _, tag in data])
+
+    return X, y
+
+def log_time_delta(func):
+    @wraps(func)
+    def _deco(*args, **kwargs):
+        start = time.time()
+        ret = func(*args, **kwargs)
+        end = time.time()
+        delta = end - start
+        print( "%s runed %.2f seconds"% (func.__name__,delta))
+        return ret
+    return _deco
+
 class Alphabet(dict):
     def __init__(self, start_feature_id = 1, alphabet_type="text"):
         self.fid = start_feature_id
@@ -63,12 +173,11 @@ class DottableDict(dict):
 class BucketIterator(object):
     def __init__(self,data,opt=None,batch_size=2,shuffle=True,test=False,position=False):
         self.shuffle=shuffle
-        self.dataset=data
+        self.data=data
         self.batch_size=batch_size
         self.test=test
         if opt is not None:
             self.setup(opt)
-
     def setup(self,opt):
         self.batch_size=opt.batch_size
         self.shuffle=opt.__dict__.get("shuffle",self.shuffle)
@@ -99,13 +208,13 @@ class BucketIterator(object):
 
     def __iter__(self):
         if self.shuffle:
-            self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
-        batch_nums = int(len(self.dataset)/self.batch_size)
+            self.data = self.data.sample(frac=1).reset_index(drop=True)
+        batch_nums = int(len(self.data)/self.batch_size)
         for  i in range(batch_nums):
-            yield self.transform(self.dataset[i*self.batch_size:(i+1)*self.batch_size])
-        yield self.transform(self.dataset[-1*self.batch_size:])
+            yield self.transform(self.data[i*self.batch_size:(i+1)*self.batch_size])
+        yield self.transform(self.data[-1*self.batch_size:])
 
-# @log_time_delta
+@log_time_delta
 def vectors_lookup(vectors,vocab,dim):
     embedding = np.zeros((len(vocab),dim))
     count = 1
@@ -118,9 +227,10 @@ def vectors_lookup(vectors,vocab,dim):
     print( 'word in embedding',count)
     return embedding
 
-# @log_time_delta
+@log_time_delta
 def load_text_vec(alphabet,filename="",embedding_size=-1):
     vectors = {}
+    # ipdb.set_trace()
     with open(filename,encoding='utf-8') as f:
         for line in tqdm(f):
             items = line.strip().split(' ')
@@ -148,12 +258,14 @@ def getEmbeddingFile(opt):
         return opt.embedding_dir
     # please refer to   https://pypi.python.org/pypi/torchwordemb/0.0.7
     return
-# @log_time_delta
+@log_time_delta
 def getSubVectors(opt,alphabet):
     pickle_filename = "temp/"+opt.dataset+".vec"
-    if not os.path.exists(pickle_filename) or opt.debug:
+    if not os.path.exists(pickle_filename) or opt.use_glove:
         glove_file = getEmbeddingFile(opt)
-        wordset= set(alphabet.keys())   # python 2.7
+        ipdb.set_trace()
+        wordset = list(sorted(set(alphabet.keys())))   # python 2.7
+        # ipdb.set_trace()
         loaded_vectors,embedding_size = load_text_vec(wordset,glove_file)
 
         vectors = vectors_lookup(loaded_vectors,alphabet,embedding_size)
@@ -200,7 +312,7 @@ def clean(text):
 #    print("%s $$$$$ %s" %(pre,text))
 
     return text.lower().split()
-# @log_time_delta
+@log_time_delta
 def get_clean_datas(opt):
     pickle_filename = "temp/"+opt.dataset+".data"
     if not os.path.exists(pickle_filename) or opt.debug:
@@ -245,8 +357,8 @@ def process_with_bert(text,tokenizer,max_seq_len) :
     return tokens[:max_seq_len] + [0] *int(max_seq_len-len(tokens))
 
 def loadData(opt,embedding=True):
-    # if args.no_load_embedding==False:
-        # return loadDataWithoutEmbedding(opt)
+    if opt.no_load_embedding==False:
+        return loadDataWithoutEmbedding(opt)
 
     datas =get_clean_datas(opt)
 
@@ -266,6 +378,8 @@ def loadData(opt,embedding=True):
 
         word_set=set()
         [word_set.add(word)  for l in df["text"] if l is not None for word in l ]
+        word_set = sorted(list(word_set))
+        # ipdb.set_trace()
     #    from functools import reduce
     #    word_set=set(reduce(lambda x,y :x+y,df["text"]))
 
@@ -277,7 +391,6 @@ def loadData(opt,embedding=True):
     #    opt.label_size= len(label_alphabet)
         opt.embedding_dim= vectors.shape[-1]
         opt.embeddings = torch.FloatTensor(vectors)
-
     else:
         alphabet,tokenizer = load_vocab_from_bert(opt.bert_dir)
 
@@ -291,7 +404,7 @@ def loadData(opt,embedding=True):
             data["text"]= data["text"].apply(process_with_bert,tokenizer=tokenizer,max_seq_len = opt.max_seq_len)
         data["label"]=data["label"].apply(lambda text: label_alphabet.get(text))
 
-    return map(lambda x:BucketIterator(x,opt),datas)
+    return map(lambda x:BucketIterator(x,opt),datas)#map(BucketIterator,datas)  #
 
 def loadDataWithoutEmbedding(opt):
     datas=[]
@@ -300,10 +413,6 @@ def loadDataWithoutEmbedding(opt):
         df["text"]= df["text"].str.lower()
         datas.append((df["text"],df["label"]))
     return datas
-
-
-
-
 
 if __name__ =="__main__":
     import opts
