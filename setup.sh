@@ -5,3 +5,4 @@ cd advertorch
 python setup.py install
 cd ..
 rm -rf advertorch
+pip install -r requirements.txt
