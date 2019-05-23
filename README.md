@@ -3,7 +3,12 @@
 This repo contains code for Domain Agnostic Black-Box Adversarial Attacks. The current codebase is Research code and is subject to change. Currently, the code is only for vision tasks. Future goals include text and graphs.
 
 ## Requirements
-In addition to default packages, the following are necessary:
+Assuming you are in a clean Python 3.6 environment, to install all required packages and download required data, simply run:
+```
+bash setup.sh
+```
+
+This will download a pretrained LSTM, Glove embeddings, IMDB data, install required packages including:
 ```
 comet_ml (latest version) \
 pytorch==1.0.1 \
@@ -14,10 +19,6 @@ tqdm \
 [advertorch](https://github.com/BorealisAI/advertorch) \
 ```
 
-The version details are specified in `requirements.txt`. To ensure reproducibility, in a new conda or python environment running python 3.6+, install dependencies matching the development machine:
-```
-bash setup.sh
-```
 
 ## Sample Commands
 A basic command for white box attack on the CIFAR dataset
@@ -37,7 +38,7 @@ python main.py --white --no_pgd_optim --hidden_init --batch_size=128  --namestr=
 
 ## Reproducibility
 ### Text experiments
-To train..
+To train the adversarial model
 
 
 ## Contributing

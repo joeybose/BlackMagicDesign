@@ -24,4 +24,4 @@ bash download_data.sh
 echo "Downloading pretrained LSTM\n"
 cd $root_dir
 cd setup_scripts/
-bash download_lstm.sh
+bash download_pretrained.sh
