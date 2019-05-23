@@ -7,6 +7,11 @@ BMD_text/saved_models/*
 *.pt
 settings.json
 *.txt
+temp/
+demo.text
+.data/
+*.pickle
+experiments/
 
 ./BMD_graph/a=__pycache__/
 ./BMD_text/saved_models/cnn_.pt
