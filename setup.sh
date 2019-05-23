@@ -25,3 +25,15 @@ echo "Downloading pretrained LSTM\n"
 cd $root_dir
 cd setup_scripts/
 bash download_pretrained.sh
+
+echo "Creating comet_ml settings file\n"
+echo "You must configure 'BMD_text/settings.json' for comet_ml\n"
+cd $root_dir/BMD_text/
+cat <<EOF >settings.json
+{
+"username": "your_user-name",
+"apikey": "your_apikey"
+}
+EOF
+
+
