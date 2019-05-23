@@ -11,4 +11,5 @@ curl -Lb ./cookie "https://drive.google.com/uc?export=download&confirm=`awk '/do
 
 # Extract
 rm cookie
+echo "Extracting IMDB, this may take a few minutes"
 tar -xzf data.tar.gz
