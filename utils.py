@@ -107,15 +107,15 @@ def get_single_data(args):
     args.input_size = tensor[0][0].flatten().shape[0]
     return tensor, target
 
-def get_data(args,normalize=True):
+def get_data(args,normalize=True,root='./data'):
     """
     Data loader. For now, just a test sample
     """
     if args.mnist:
-        trainloader, testloader = load_mnist(normalize=False)
+        trainloader, testloader = load_mnist(normalize=False,root=root)
         args.classes = 10
     elif args.cifar:
-        trainloader, testloader = load_cifar(args,normalize=normalize)
+        trainloader, testloader = load_cifar(args,normalize=normalize,root=root)
         args.classes = 10
     else:
         raise NotImplementedError
@@ -233,7 +233,7 @@ def test_classifier(args, model, device, test_loader):
                 test_loss, correct, len(test_loader.dataset),
                 100. * correct / len(test_loader.dataset)))
 
-def load_cifar(args,normalize=False):
+def load_cifar(args,normalize=False,root='./data'):
     """
     Load and normalize the training and test data for CIFAR10
     """
@@ -261,18 +261,18 @@ def load_cifar(args,normalize=False):
             transforms.ToTensor(),
         ])
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+    trainset = torchvision.datasets.CIFAR10(root=root, train=True,
                                     download=True, transform=transform_train)
     trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batch_size,
                                                 shuffle=True, num_workers=8)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+    testset = torchvision.datasets.CIFAR10(root=root, train=False,
                                       download=True, transform=transform_test)
     testloader = torch.utils.data.DataLoader(testset,batch_size=args.test_batch_size,
                                                  shuffle=False, num_workers=8)
     return trainloader, testloader
 
-def load_mnist(normalize=True):
+def load_mnist(normalize=True, root='./data'):
     """
     Load and normalize the training and test data for MNIST
     """
@@ -287,11 +287,11 @@ def load_mnist(normalize=True):
                            transforms.ToTensor(),
                        ])
     trainloader = torch.utils.data.DataLoader(
-        datasets.MNIST('./data', train=True, download=True,
+        datasets.MNIST(root=root, train=True, download=True,
                        transform=mnist_transforms),\
                                batch_size=1024, shuffle=True)
     testloader = torch.utils.data.DataLoader(
-        datasets.MNIST('./data', train=False, transform=mnist_transforms),\
+        datasets.MNIST(root=root, train=False, transform=mnist_transforms),\
                 batch_size=1024, shuffle=True)
     return trainloader, testloader
 
