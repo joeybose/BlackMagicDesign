@@ -107,7 +107,7 @@ def get_single_data(args):
     args.input_size = tensor[0][0].flatten().shape[0]
     return tensor, target
 
-def get_data(args):
+def get_data(args,normalize=True):
     """
     Data loader. For now, just a test sample
     """
@@ -115,7 +115,7 @@ def get_data(args):
         trainloader, testloader = load_mnist(normalize=False)
         args.classes = 10
     elif args.cifar:
-        trainloader, testloader = load_cifar(args,normalize=True)
+        trainloader, testloader = load_cifar(args,normalize=normalize)
         args.classes = 10
     else:
         raise NotImplementedError
@@ -158,24 +158,27 @@ def main_mnist(args):
     torch.save(model.state_dict(),"saved_models/mnist_cnn.pt")
     return model
 
-def main_cifar(args):
+def main_cifar(args,normalize=True):
     architectures = [
-		    (VGG, 'VGG16', 50),
-		    (resnet.ResNet18, 'res18', 500),
-		    (densenet.densenet_cifar, 'dense121', 500),
-		    (googlenet.GoogLeNet, 'googlenet', 500),
-		    (LeNet, 'lenet', 250)
+		    (VGG, 'VGG16', 50)
+		    # (resnet.ResNet18, 'res18', 500),
+		    # (densenet.densenet_cifar, 'dense121', 500),
+		    # (googlenet.GoogLeNet, 'googlenet', 500),
+		    # (LeNet, 'lenet', 250)
 	    ]
     for init_func, name, epochs in architectures:
         print("Training %s" %(name))
         model = init_func().to(args.device)
         model = nn.DataParallel(model)
         optimizer = optim.Adam(model.parameters(),lr=1e-4)
-        train_loader, test_loader = load_cifar(args,normalize=True)
+        train_loader, test_loader = load_cifar(args,normalize=normalize)
         for epoch in range(1,500):
             train_classifier(args, model, args.device, train_loader, optimizer, epoch)
             test_classifier(args, model, args.device, test_loader)
-        torch.save(model.state_dict(),"cifar_"+name+".pt")
+        if not os.path.exists('./saved_models'):
+            os.makedirs('./saved_models')
+        save_path = './saved_models/' + "cifar_"+name+".pt"
+        torch.save(model.state_dict(),save_path)
     return model
 
 def train_classifier(args, model, device, train_loader, optimizer, epoch):
@@ -235,19 +238,28 @@ def load_cifar(args,normalize=False):
     Load and normalize the training and test data for CIFAR10
     """
     print('==> Preparing data..')
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-	transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        # transforms.Normalize((-1, -1, -1), (2, 2, 2)),
-    ])
+    if normalize:
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ])
 
-    transform_test = transforms.Compose([
-	transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        # transforms.Normalize((-1, -1, -1), (2, 2, 2)),
-    ])
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ])
+    else:
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+        ])
+
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+        ])
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                     download=True, transform=transform_train)
